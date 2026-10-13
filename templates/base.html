@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}GoBuy{% endblock %} · GoBuy</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="logo" href="{{ url_for('catalog') }}">Go<span>Buy</span></a>
+  <nav>
+    <a href="{{ url_for('catalog') }}">Shop</a>
+    <a href="{{ url_for('cart') }}">Cart{% if cart_count %}<span class="badge">{{ cart_count }}</span>{% endif %}</a>
+    {% if g.user %}
+      {% if g.user.is_admin %}<a href="{{ url_for('admin_dashboard') }}">Admin</a>{% endif %}
+      <a href="{{ url_for('account') }}">{{ g.user.name.split()[0] }}</a>
+      <form class="inline" method="post" action="{{ url_for('logout') }}"><button class="link">Log out</button></form>
+    {% else %}
+      <a href="{{ url_for('login') }}">Log in</a>
+      <a class="btn sm" href="{{ url_for('register') }}">Sign up</a>
+    {% endif %}
+  </nav>
+</div></header>
+<main class="wrap">
+  {% for cat, msg in get_flashed_messages(with_categories=true) %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
+  {% block content %}{% endblock %}
+</main>
+<footer><div class="wrap">© {{ now.year }} GoBuy · Simple, thoughtful goods</div></footer>
+</body>
+</html>

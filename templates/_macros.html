@@ -1,0 +1,8 @@
+{% macro pimg(p, cls='') %}
+<div class="pimg {{ cls }}">{% if p.image %}<img src="{{ url_for('static', filename=p.image) }}" alt="{{ p.name }}">{% else %}{{ p.name[0] }}{% endif %}</div>
+{% endmacro %}
+{% macro stock_tag(p) %}
+{% if p.stock <= 0 %}<span class="tag bad">Out of stock</span>
+{% elif p.stock <= p.low_stock_threshold %}<span class="tag warn">Only {{ p.stock }} left</span>
+{% else %}<span class="tag">In stock</span>{% endif %}
+{% endmacro %}

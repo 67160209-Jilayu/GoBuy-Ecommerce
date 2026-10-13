@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Orders{% endblock %}
+{% block content %}
+{% set active='orders' %}{% include "admin/_nav.html" %}
+<div class="chips">
+  <a class="chip {{ 'on' if not status }}" href="{{ url_for('admin_orders') }}">All</a>
+  {% for s in statuses %}<a class="chip {{ 'on' if status == s }}" href="{{ url_for('admin_orders', status=s) }}">{{ s|capitalize }}</a>{% endfor %}
+</div>
+<div class="card"><div class="tablewrap"><table>
+  <tr><th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th class="right">Total</th><th></th></tr>
+  {% for o in orders %}
+  <tr><td><a href="{{ url_for('admin_order', oid=o.id) }}">#{{ o.id }}</a></td><td>{{ o.created_at[:16] }}</td>
+  <td>{{ o.customer or 'Guest' }}<br><span class="muted small">{{ o.email }}</span></td>
+  <td><form method="post" action="{{ url_for('admin_order', oid=o.id) }}"><select name="status" onchange="this.form.submit()" style="width:auto;padding:4px 8px">
+    {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if s == o.status }}>{{ s|capitalize }}</option>{% endfor %}</select></form></td>
+  <td class="right">{{ o.total|money }}</td><td class="right"><a href="{{ url_for('admin_order', oid=o.id) }}">View</a></td></tr>
+  {% else %}<tr><td colspan="6" class="muted">No orders found.</td></tr>{% endfor %}
+</table></div></div>
+{% endblock %}

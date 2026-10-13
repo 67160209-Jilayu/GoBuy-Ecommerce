@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pimg, stock_tag %}
+{% block content %}
+{% if not q and not cat %}
+<div class="hero"><h1>Everyday goods, made simple.</h1><p>Browse our curated collection for the kitchen, home and beyond.</p></div>
+{% endif %}
+<form class="filters" method="get">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search products…">
+  {% if cat %}<input type="hidden" name="category" value="{{ cat }}">{% endif %}
+  <select name="sort" onchange="this.form.submit()">
+    {% for v, l in [('new','Newest'),('price_asc','Price: low to high'),('price_desc','Price: high to low'),('name','Name')] %}
+    <option value="{{ v }}" {{ 'selected' if sort == v }}>{{ l }}</option>{% endfor %}
+  </select>
+  <button class="btn">Search</button>
+</form>
+<div class="chips">
+  <a class="chip {{ 'on' if not cat }}" href="{{ url_for('catalog', q=q or None, sort=(sort if sort != 'new' else None)) }}">All</a>
+  {% for c in cats %}<a class="chip {{ 'on' if cat == c.id }}" href="{{ url_for('catalog', category=c.id, q=q or None, sort=(sort if sort != 'new' else None)) }}">{{ c.name }}</a>{% endfor %}
+</div>
+{% if products %}
+<div class="grid">
+  {% for p in products %}
+  <a class="pcard" href="{{ url_for('product', pid=p.id) }}">
+    {{ pimg(p) }}
+    <div class="pbody">
+      <span class="cat">{{ p.category or 'Uncategorized' }}</span>
+      <span class="name">{{ p.name }}</span>
+      <span class="price">{{ p.price|money }}</span>
+      <span>{{ stock_tag(p) }}</span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}<div class="empty">No products found.</div>{% endif %}
+{% endblock %}

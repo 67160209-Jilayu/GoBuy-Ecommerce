@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Order #{{ o.id }}{% endblock %}
+{% block content %}
+<h1>Order #{{ o.id }} <span class="pill {{ o.status }}">{{ o.status }}</span></h1>
+<p class="muted">Placed {{ o.created_at[:16] }}. Thank you for your order!</p>
+<div class="two">
+  <div class="card"><div class="tablewrap"><table>
+    <tr><th>Item</th><th>Price</th><th>Qty</th><th class="right">Subtotal</th></tr>
+    {% for i in items %}<tr><td>{{ i.name }}</td><td>{{ i.price|money }}</td><td>{{ i.qty }}</td><td class="right">{{ (i.price*i.qty)|money }}</td></tr>{% endfor %}
+  </table></div>
+  <div class="sum-row total"><span>Total</span><span>{{ o.total|money }}</span></div></div>
+  <div class="card"><h2>Ship to</h2>
+    <p>{{ o.ship_name }}<br>{{ o.ship_line1 }}<br>{{ o.ship_city }} {{ o.ship_postal }}<br>{{ o.ship_phone }}</p>
+    {% if o.note %}<p class="muted small">Note: {{ o.note }}</p>{% endif %}
+    <a href="{{ url_for('account') }}">← My account</a></div>
+</div>
+{% endblock %}

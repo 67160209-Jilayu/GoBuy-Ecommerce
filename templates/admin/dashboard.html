@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+{% set active='dash' %}{% include "admin/_nav.html" %}
+<div class="stats">
+  <div class="stat"><div class="l">Total revenue</div><div class="v">{{ stats.revenue|money }}</div></div>
+  <div class="stat"><div class="l">This month</div><div class="v">{{ stats.month|money }}</div></div>
+  <div class="stat"><div class="l">Today</div><div class="v">{{ stats.today|money }}</div></div>
+  <div class="stat"><div class="l">Orders</div><div class="v">{{ stats.orders }}</div></div>
+  <div class="stat"><div class="l">To fulfil</div><div class="v">{{ stats.pending }}</div></div>
+  <div class="stat"><div class="l">Avg. order</div><div class="v">{{ stats.aov|money }}</div></div>
+</div>
+<div class="cols">
+  <div class="card"><h2>Revenue · last 7 days</h2>
+    <div class="bars">{% for c in chart %}
+      <div class="bar" title="{{ c.value|money }}">{% if c.value %}<span>{{ c.value|money }}</span>{% endif %}<i style="height:{{ (c.value / cmax * 100)|round }}%"></i><span>{{ c.label }}</span></div>
+    {% endfor %}</div></div>
+  <div class="card"><h2>Low-stock alerts {% if low %}<span class="tag warn">{{ low|length }}</span>{% endif %}</h2>
+    {% for p in low %}
+    <div class="sum-row"><a href="{{ url_for('admin_product_edit', pid=p.id) }}">{{ p.name }}</a>
+      <span class="tag {{ 'bad' if p.stock == 0 else 'warn' }}">{{ p.stock }} left</span></div>
+    {% else %}<p class="muted">All products are well stocked.</p>{% endfor %}
+  </div>
+</div>
+<div class="cols" style="grid-template-columns:1.4fr 1fr">
+  <div class="card"><h2>Recent orders</h2>
+    <div class="tablewrap"><table>
+      {% for o in recent %}<tr><td><a href="{{ url_for('admin_order', oid=o.id) }}">#{{ o.id }}</a></td><td>{{ o.customer or 'Guest' }}</td>
+      <td><span class="pill {{ o.status }}">{{ o.status }}</span></td><td class="right">{{ o.total|money }}</td></tr>
+      {% else %}<tr><td class="muted">No orders yet.</td></tr>{% endfor %}
+    </table></div></div>
+  <div class="card"><h2>Top products</h2>
+    {% for t in top %}<div class="sum-row"><span>{{ t.name }} <span class="muted small">×{{ t.qty }}</span></span><span>{{ t.rev|money }}</span></div>
+    {% else %}<p class="muted">No sales yet.</p>{% endfor %}</div>
+</div>
+{% endblock %}

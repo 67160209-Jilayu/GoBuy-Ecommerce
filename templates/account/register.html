@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Sign up{% endblock %}
+{% block content %}
+<div class="card narrow">
+  <h1>Create account</h1>
+  <form method="post">
+    <label>Full name</label><input name="name" required autofocus>
+    <label>Email</label><input type="email" name="email" required>
+    <label>Password (6+ characters)</label><input type="password" name="password" minlength="6" required>
+    <p><button class="btn" style="width:100%">Sign up</button></p>
+  </form>
+  <p class="small muted">Already registered? <a href="{{ url_for('login') }}">Log in</a></p>
+</div>
+{% endblock %}

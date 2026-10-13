@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Order #{{ o.id }}{% endblock %}
+{% block content %}
+{% set active='orders' %}{% include "admin/_nav.html" %}
+<h1>Order #{{ o.id }} <span class="pill {{ o.status }}">{{ o.status }}</span></h1>
+<div class="two">
+  <div class="card"><div class="tablewrap"><table>
+    <tr><th>Item</th><th>Price</th><th>Qty</th><th class="right">Subtotal</th></tr>
+    {% for i in items %}<tr><td>{{ i.name }}</td><td>{{ i.price|money }}</td><td>{{ i.qty }}</td><td class="right">{{ (i.price*i.qty)|money }}</td></tr>{% endfor %}
+  </table></div><div class="sum-row total"><span>Total</span><span>{{ o.total|money }}</span></div></div>
+  <div>
+    <div class="card" style="margin-bottom:16px"><h2>Fulfilment</h2>
+      <form method="post"><select name="status">{% for s in statuses %}<option value="{{ s }}" {{ 'selected' if s == o.status }}>{{ s|capitalize }}</option>{% endfor %}</select>
+      <p><button class="btn">Update status</button></p></form>
+      <p class="small muted">Cancelling an order returns its items to stock.</p></div>
+    <div class="card"><h2>Customer</h2>
+      <p>{{ o.customer or 'Guest' }}<br><span class="muted small">{{ o.email }}</span></p>
+      <p>{{ o.ship_name }}<br>{{ o.ship_line1 }}<br>{{ o.ship_city }} {{ o.ship_postal }}<br>{{ o.ship_phone }}</p>
+      {% if o.note %}<p class="muted small">Note: {{ o.note }}</p>{% endif %}</div>
+  </div>
+</div>
+{% endblock %}

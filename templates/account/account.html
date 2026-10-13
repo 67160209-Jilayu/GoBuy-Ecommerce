@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}My account{% endblock %}
+{% block content %}
+<h1>My account</h1>
+<div class="cols" style="grid-template-columns:1fr 1fr">
+  <div class="card">
+    <h2>Profile</h2>
+    <form method="post">
+      <label>Name</label><input name="name" value="{{ g.user.name }}" required>
+      <label>Email</label><input value="{{ g.user.email }}" disabled>
+      <label>Phone</label><input name="phone" value="{{ g.user.phone }}">
+      <label>Change password</label>
+      <input type="password" name="current_password" placeholder="Current password">
+      <input type="password" name="new_password" placeholder="New password" style="margin-top:8px">
+      <p><button class="btn">Save profile</button></p>
+    </form>
+  </div>
+  <div class="card" id="addresses">
+    <h2>Shipping addresses</h2>
+    {% for a in addrs %}
+    <div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)">
+      <span>{{ a.full_name }}<br><span class="muted small">{{ a.line1 }}, {{ a.city }} {{ a.postal_code }} · {{ a.phone }}</span></span>
+      <form method="post" action="{{ url_for('address_delete', aid=a.id) }}"><button class="btn danger sm">Delete</button></form>
+    </div>
+    {% else %}<p class="muted small">No saved addresses.</p>{% endfor %}
+    <details style="margin-top:12px"><summary style="cursor:pointer;color:var(--g600)">Add address</summary>
+      <form method="post" action="{{ url_for('address_add') }}">
+        <label>Full name</label><input name="full_name" value="{{ g.user.name }}">
+        <label>Address</label><input name="line1">
+        <div class="row"><div><label>City / Province</label><input name="city"></div>
+        <div><label>Postal code</label><input name="postal_code"></div></div>
+        <label>Phone</label><input name="phone" value="{{ g.user.phone }}">
+        <p><button class="btn sm">Save address</button></p>
+      </form>
+    </details>
+  </div>
+</div>
+<div class="card">
+  <h2>Order history</h2>
+  {% if orders %}
+  <div class="tablewrap"><table>
+    <tr><th>Order</th><th>Date</th><th>Status</th><th class="right">Total</th></tr>
+    {% for o in orders %}
+    <tr><td><a href="{{ url_for('order_done', oid=o.id) }}">#{{ o.id }}</a></td><td>{{ o.created_at[:16] }}</td>
+    <td><span class="pill {{ o.status }}">{{ o.status }}</span></td><td class="right">{{ o.total|money }}</td></tr>
+    {% endfor %}
+  </table></div>
+  {% else %}<p class="muted">You haven't placed any orders yet.</p>{% endif %}
+</div>
+{% endblock %}

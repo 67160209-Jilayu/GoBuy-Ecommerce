@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pimg, stock_tag %}
+{% block title %}{{ p.name }}{% endblock %}
+{% block content %}
+<p class="small"><a href="{{ url_for('catalog') }}">← Back to shop</a></p>
+<div class="detail">
+  {{ pimg(p) }}
+  <div>
+    <span class="small muted">{{ p.category or 'Uncategorized' }}</span>
+    <h1>{{ p.name }}</h1>
+    <p class="price" style="font-size:1.5rem;margin:.2rem 0 .8rem">{{ p.price|money }}</p>
+    <p>{{ stock_tag(p) }}</p>
+    <p class="muted">{{ p.description }}</p>
+    {% if p.stock > 0 %}
+    <form method="post" action="{{ url_for('cart_add', pid=p.id) }}" style="display:flex;gap:10px;margin-top:20px">
+      <input class="qty" type="number" name="qty" value="1" min="1" max="{{ p.stock }}">
+      <button class="btn">Add to cart</button>
+    </form>
+    {% else %}<button class="btn" disabled style="margin-top:20px">Out of stock</button>{% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Checkout{% endblock %}
+{% block content %}
+<h1>Checkout</h1>
+<form method="post" class="two">
+  <div class="card">
+    <h2>Shipping details</h2>
+    {% for a in addrs %}
+    <label style="display:flex;gap:10px;align-items:flex-start;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0">
+      <input type="radio" name="address_id" value="{{ a.id }}" {{ 'checked' if loop.first }} onchange="document.getElementById('newaddr').hidden=true">
+      <span>{{ a.full_name }}<br><span class="muted small">{{ a.line1 }}, {{ a.city }} {{ a.postal_code }} · {{ a.phone }}</span></span>
+    </label>
+    {% endfor %}
+    <label style="display:flex;gap:10px;align-items:center;color:var(--ink)">
+      <input type="radio" name="address_id" value="new" {{ 'checked' if not addrs }} onchange="document.getElementById('newaddr').hidden=false"> Use a new address
+    </label>
+    <div id="newaddr" {{ 'hidden' if addrs }}>
+      <label>Full name</label><input name="full_name" value="{{ form.get('full_name', g.user.name) }}">
+      <label>Address</label><input name="line1" value="{{ form.get('line1', '') }}">
+      <div class="row">
+        <div><label>City / Province</label><input name="city" value="{{ form.get('city', '') }}"></div>
+        <div><label>Postal code</label><input name="postal_code" value="{{ form.get('postal_code', '') }}"></div>
+      </div>
+      <label>Phone</label><input name="phone" value="{{ form.get('phone', g.user.phone) }}">
+      <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="save_address" checked> Save this address to my account</label>
+    </div>
+    <label>Order note (optional)</label><textarea name="note" rows="2"></textarea>
+  </div>
+  <div class="card">
+    <h2>Your order</h2>
+    {% for it in items %}<div class="sum-row"><span>{{ it.qty }} × {{ it.p.name }}</span><span>{{ it.sub|money }}</span></div>{% endfor %}
+    <div class="sum-row"><span>Shipping</span><span>Free</span></div>
+    <div class="sum-row total"><span>Total</span><span>{{ total|money }}</span></div>
+    <p class="small muted">Payment: cash on delivery / bank transfer (the store will confirm your order).</p>
+    <button class="btn" style="width:100%">Place order</button>
+  </div>
+</form>
+{% endblock %}

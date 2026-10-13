@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if p else 'New' }} product{% endblock %}
+{% block content %}
+{% set active='products' %}{% include "admin/_nav.html" %}
+<div class="card" style="max-width:640px">
+  <h2>{{ 'Edit product' if p else 'Add product' }}</h2>
+  <form method="post" enctype="multipart/form-data">
+    <label>Name</label><input name="name" value="{{ p.name if p }}" required>
+    <label>Description</label><textarea name="description" rows="4">{{ p.description if p }}</textarea>
+    <div class="row">
+      <div><label>Price (฿)</label><input type="number" step="0.01" min="0" name="price" value="{{ p.price if p }}" required></div>
+      <div><label>Stock quantity</label><input type="number" min="0" name="stock" value="{{ p.stock if p else 0 }}" required></div>
+    </div>
+    <div class="row">
+      <div><label>Low-stock alert at</label><input type="number" min="0" name="low_stock_threshold" value="{{ p.low_stock_threshold if p else 5 }}"></div>
+      <div><label>Category</label><select name="category_id"><option value="">— None —</option>
+        {% for c in cats %}<option value="{{ c.id }}" {{ 'selected' if p and p.category_id == c.id }}>{{ c.name }}</option>{% endfor %}</select></div>
+    </div>
+    <label>…or create a new category</label><input name="new_category" placeholder="e.g. Stationery">
+    <label>Image</label><input type="file" name="image" accept="image/*">
+    {% if p and p.image %}<p class="small muted">Current: <img src="{{ url_for('static', filename=p.image) }}" style="height:40px;vertical-align:middle;border-radius:6px"> (upload to replace)</p>{% endif %}
+    <label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" name="active" {{ 'checked' if not p or p.active }}> Visible in shop</label>
+    <p><button class="btn">Save</button> <a class="btn ghost" href="{{ url_for('admin_products') }}">Cancel</a></p>
+  </form>
+</div>
+{% endblock %}
