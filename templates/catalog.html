@@ -7,7 +7,7 @@
 <form class="filters" method="get">
   <input type="search" name="q" value="{{ q }}" placeholder="Search products…">
   {% if cat %}<input type="hidden" name="category" value="{{ cat }}">{% endif %}
-  <select name="sort" onchange="this.form.submit()">
+  <select name="sort" data-autosubmit>
     {% for v, l in [('new','Newest'),('price_asc','Price: low to high'),('price_desc','Price: high to low'),('name','Name')] %}
     <option value="{{ v }}" {{ 'selected' if sort == v }}>{{ l }}</option>{% endfor %}
   </select>

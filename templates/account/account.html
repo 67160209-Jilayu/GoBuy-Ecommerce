@@ -5,7 +5,7 @@
 <div class="cols" style="grid-template-columns:1fr 1fr">
   <div class="card">
     <h2>Profile</h2>
-    <form method="post">
+    <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>Name</label><input name="name" value="{{ g.user.name }}" required>
       <label>Email</label><input value="{{ g.user.email }}" disabled>
       <label>Phone</label><input name="phone" value="{{ g.user.phone }}">
@@ -20,11 +20,11 @@
     {% for a in addrs %}
     <div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)">
       <span>{{ a.full_name }}<br><span class="muted small">{{ a.line1 }}, {{ a.city }} {{ a.postal_code }} · {{ a.phone }}</span></span>
-      <form method="post" action="{{ url_for('address_delete', aid=a.id) }}"><button class="btn danger sm">Delete</button></form>
+      <form method="post" action="{{ url_for('address_delete', aid=a.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger sm">Delete</button></form>
     </div>
     {% else %}<p class="muted small">No saved addresses.</p>{% endfor %}
     <details style="margin-top:12px"><summary style="cursor:pointer;color:var(--g600)">Add address</summary>
-      <form method="post" action="{{ url_for('address_add') }}">
+      <form method="post" action="{{ url_for('address_add') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Full name</label><input name="full_name" value="{{ g.user.name }}">
         <label>Address</label><input name="line1">
         <div class="row"><div><label>City / Province</label><input name="city"></div>

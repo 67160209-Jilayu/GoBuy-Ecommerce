@@ -2,17 +2,18 @@
 {% block title %}Checkout{% endblock %}
 {% block content %}
 <h1>Checkout</h1>
-<form method="post" class="two">
+<form method="post" class="two"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="card">
+    <input type="hidden" name="token" value="{{ token }}">
     <h2>Shipping details</h2>
     {% for a in addrs %}
     <label style="display:flex;gap:10px;align-items:flex-start;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0">
-      <input type="radio" name="address_id" value="{{ a.id }}" {{ 'checked' if loop.first }} onchange="document.getElementById('newaddr').hidden=true">
+      <input type="radio" name="address_id" value="{{ a.id }}" {{ 'checked' if loop.first }} data-newaddr="hide">
       <span>{{ a.full_name }}<br><span class="muted small">{{ a.line1 }}, {{ a.city }} {{ a.postal_code }} · {{ a.phone }}</span></span>
     </label>
     {% endfor %}
     <label style="display:flex;gap:10px;align-items:center;color:var(--ink)">
-      <input type="radio" name="address_id" value="new" {{ 'checked' if not addrs }} onchange="document.getElementById('newaddr').hidden=false"> Use a new address
+      <input type="radio" name="address_id" value="new" {{ 'checked' if not addrs }} data-newaddr="show"> Use a new address
     </label>
     <div id="newaddr" {{ 'hidden' if addrs }}>
       <label>Full name</label><input name="full_name" value="{{ form.get('full_name', g.user.name) }}">

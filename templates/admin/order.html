@@ -10,7 +10,7 @@
   </table></div><div class="sum-row total"><span>Total</span><span>{{ o.total|money }}</span></div></div>
   <div>
     <div class="card" style="margin-bottom:16px"><h2>Fulfilment</h2>
-      <form method="post"><select name="status">{% for s in statuses %}<option value="{{ s }}" {{ 'selected' if s == o.status }}>{{ s|capitalize }}</option>{% endfor %}</select>
+      <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><select name="status">{% for s in statuses %}<option value="{{ s }}" {{ 'selected' if s == o.status }}>{{ s|capitalize }}</option>{% endfor %}</select>
       <p><button class="btn">Update status</button></p></form>
       <p class="small muted">Cancelling an order returns its items to stock.</p></div>
     <div class="card"><h2>Customer</h2>

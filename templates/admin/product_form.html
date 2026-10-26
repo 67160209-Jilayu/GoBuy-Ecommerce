@@ -4,7 +4,7 @@
 {% set active='products' %}{% include "admin/_nav.html" %}
 <div class="card" style="max-width:640px">
   <h2>{{ 'Edit product' if p else 'Add product' }}</h2>
-  <form method="post" enctype="multipart/form-data">
+  <form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Name</label><input name="name" value="{{ p.name if p }}" required>
     <label>Description</label><textarea name="description" rows="4">{{ p.description if p }}</textarea>
     <div class="row">
@@ -17,13 +17,30 @@
         {% for c in cats %}<option value="{{ c.id }}" {{ 'selected' if p and p.category_id == c.id }}>{{ c.name }}</option>{% endfor %}</select></div>
     </div>
     <label>…or create a new category</label><input name="new_category" placeholder="e.g. Stationery">
-    <label>Image</label><input type="file" name="image" accept="image/*">
-    {% if p and p.image %}<p class="small muted">Current: <img src="{{ p.image|media }}" style="height:40px;vertical-align:middle;border-radius:6px"> (upload to replace)</p>{% endif %}
-    <label>Video (mp4, webm, mov · max 100 MB)</label><input type="file" name="video" accept="video/*">
-    {% if p and p.video %}<p class="small muted">Current video: <video src="{{ p.video|media }}" style="height:60px;vertical-align:middle;border-radius:6px" muted></video>
-      <label style="display:inline-flex;gap:6px;align-items:center;margin:0 0 0 8px"><input type="checkbox" name="remove_video"> remove</label></p>{% endif %}
+    <label>Photos &amp; videos</label>
+    {% if media %}
+    <p class="small muted" style="margin:0 0 6px">Drag to reorder · the first image is the cover · × removes an item</p>
+    <div class="mgrid" id="existing">
+     
+      {% for m in media %}
+      <div class="mitem" draggable="true"><input type="hidden" name="keep" value="{{ m.id }}">
+        {% if m.kind == 'image' %}<img src="{{ m.url|media }}" alt="">{% else %}<video src="{{ m.url|media }}#t=0.1" preload="metadata" muted></video><span class="vbadge">▶</span>{% endif %}
+        <button type="button" class="x" title="Remove">×</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="dropzone" id="dropzone" tabindex="0">
+      <strong>Drag &amp; drop</strong> images or videos here, or click to browse
+      <div class="small muted">Images up to 10 MB · videos (mp4, webm, mov) up to 100 MB · multiple files allowed</div>
+      <input type="file" id="mediaInput" name="media" accept="image/*,video/*" multiple hidden>
+    </div>
+    <div class="mgrid" id="newfiles"></div>
+    <div class="progress" id="progress" hidden><i></i></div>
+    <p class="small" id="uploadMsg" style="color:var(--bad)"></p>
     <label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" name="active" {{ 'checked' if not p or p.active }}> Visible in shop</label>
     <p><button class="btn">Save</button> <a class="btn ghost" href="{{ url_for('admin_products') }}">Cancel</a></p>
   </form>
 </div>
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='media-upload.js') }}"></script>{% endblock %}

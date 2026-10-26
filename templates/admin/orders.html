@@ -11,7 +11,7 @@
   {% for o in orders %}
   <tr><td><a href="{{ url_for('admin_order', oid=o.id) }}">#{{ o.id }}</a></td><td>{{ o.created_at|dt }}</td>
   <td>{{ o.customer or 'Guest' }}<br><span class="muted small">{{ o.email }}</span></td>
-  <td><form method="post" action="{{ url_for('admin_order', oid=o.id) }}"><select name="status" onchange="this.form.submit()" style="width:auto;padding:4px 8px">
+  <td><form method="post" action="{{ url_for('admin_order', oid=o.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><select name="status" data-autosubmit style="width:auto;padding:4px 8px">
     {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if s == o.status }}>{{ s|capitalize }}</option>{% endfor %}</select></form></td>
   <td class="right">{{ o.total|money }}</td><td class="right"><a href="{{ url_for('admin_order', oid=o.id) }}">View</a></td></tr>
   {% else %}<tr><td colspan="6" class="muted">No orders found.</td></tr>{% endfor %}

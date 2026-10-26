@@ -4,9 +4,22 @@
 {% block content %}
 <p class="small"><a href="{{ url_for('catalog') }}">← Back to shop</a></p>
 <div class="detail">
-  <div>
-    {{ pimg(p) }}
-    {% if p.video %}<video class="pvideo" src="{{ p.video|media }}" controls preload="metadata" playsinline></video>{% endif %}
+  <div class="gallery">
+    {% if media %}
+    <div class="stage" id="stage">{% set m = media[0] %}
+      {% if m.kind == 'image' %}<img src="{{ m.url|media }}" alt="{{ p.name }}">{% else %}<video src="{{ m.url|media }}" controls playsinline></video>{% endif %}
+    </div>
+    {% if media|length > 1 %}
+    <div class="thumbs">
+      {% for m in media %}
+      <button type="button" class="thumb-btn {{ 'on' if loop.first }}" data-kind="{{ m.kind }}" data-src="{{ m.url|media }}" aria-label="{{ m.kind|capitalize }} {{ loop.index }}">
+        {% if m.kind == 'image' %}<img src="{{ m.url|media }}" alt="">
+        {% else %}{% if m.url|poster %}<img src="{{ m.url|poster }}" alt="">{% endif %}<span class="vbadge">▶</span>{% endif %}
+      </button>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% else %}{{ pimg(p) }}{% endif %}
   </div>
   <div>
     <span class="small muted">{{ p.category or 'Uncategorized' }}</span>
@@ -15,7 +28,7 @@
     <p>{{ stock_tag(p) }}</p>
     <p class="muted">{{ p.description }}</p>
     {% if p.stock > 0 %}
-    <form method="post" action="{{ url_for('cart_add', pid=p.id) }}" style="display:flex;gap:10px;margin-top:20px">
+    <form method="post" action="{{ url_for('cart_add', pid=p.id) }}" style="display:flex;gap:10px;margin-top:20px"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input class="qty" type="number" name="qty" value="1" min="1" max="{{ p.stock }}">
       <button class="btn">Add to cart</button>
     </form>

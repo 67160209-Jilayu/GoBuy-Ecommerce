@@ -5,7 +5,7 @@
 <h1>Your cart</h1>
 {% if items %}
 <div class="two">
-  <form method="post" class="card">
+  <form method="post" class="card"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="tablewrap"><table>
       <tr><th>Product</th><th>Price</th><th>Qty</th><th class="right">Subtotal</th><th></th></tr>
       {% for it in items %}

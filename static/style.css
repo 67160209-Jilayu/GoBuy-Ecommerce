@@ -109,3 +109,26 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
   nav{gap:12px}.hero{padding:24px 20px}
 }
 .pvideo{width:100%;margin-top:14px;border-radius:12px;background:#000;max-height:360px}
+
+/* media gallery (product page) */
+.gallery .stage{aspect-ratio:1/1;background:linear-gradient(135deg,var(--g100),var(--g50));border-radius:16px;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.gallery .stage img,.gallery .stage video{width:100%;height:100%;object-fit:contain;background:#000}
+.gallery .stage img{background:transparent;object-fit:cover}
+.thumbs{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.thumb-btn{position:relative;width:64px;height:64px;padding:0;border:2px solid transparent;border-radius:10px;overflow:hidden;cursor:pointer;background:#1c2a22}
+.thumb-btn.on{border-color:var(--g500)}
+.thumb-btn img{width:100%;height:100%;object-fit:cover;display:block}
+.vbadge{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.1rem;text-shadow:0 1px 4px rgba(0,0,0,.6);pointer-events:none}
+
+/* admin media uploader */
+.dropzone{border:2px dashed var(--g200);border-radius:12px;padding:22px;text-align:center;cursor:pointer;background:var(--g50);color:var(--ink);transition:.15s}
+.dropzone:hover,.dropzone.over,.dropzone:focus{border-color:var(--g500);background:var(--g100);outline:0}
+.mgrid{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}
+.mitem{position:relative;width:92px;height:92px;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:#1c2a22;cursor:grab}
+.mitem.new{border-color:var(--g500)}.mitem.dragging{opacity:.4}
+.mitem img,.mitem video{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
+.mitem .x{position:absolute;top:4px;right:4px;width:22px;height:22px;border:0;border-radius:50%;background:rgba(0,0,0,.65);color:#fff;cursor:pointer;line-height:1;font-size:15px;padding:0}
+.mitem .x:hover{background:var(--bad)}
+#existing .mitem:first-child::after{content:"First";position:absolute;left:0;bottom:0;right:0;background:rgba(35,127,72,.9);color:#fff;font-size:.68rem;text-align:center;padding:1px 0}
+.progress{height:8px;background:var(--g100);border-radius:99px;overflow:hidden;margin:8px 0}
+.progress i{display:block;height:100%;width:0;background:var(--g500);transition:width .15s}

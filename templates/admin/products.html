@@ -10,11 +10,11 @@
   {% for p in products %}
   <tr><td>{{ pimg(p, 'thumb') }}<a href="{{ url_for('admin_product_edit', pid=p.id) }}">{{ p.name }}</a>{% if not p.active %} <span class="tag">Hidden</span>{% endif %}</td>
   <td>{{ p.category or '—' }}</td><td>{{ p.price|money }}</td>
-  <td><form class="stockform" method="post" action="{{ url_for('admin_stock', pid=p.id) }}">
+  <td><form class="stockform" method="post" action="{{ url_for('admin_stock', pid=p.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="number" name="stock" min="0" value="{{ p.stock }}"><button class="btn ghost sm">Set</button>
     {% if p.stock <= p.low_stock_threshold %}<span class="tag {{ 'bad' if p.stock == 0 else 'warn' }}">Low</span>{% endif %}</form></td>
   <td class="right"><a href="{{ url_for('admin_product_edit', pid=p.id) }}">Edit</a>
-    <form class="inline" method="post" action="{{ url_for('admin_product_delete', pid=p.id) }}" onsubmit="return confirm('Delete {{ p.name|replace("'", "") }}?')">
+    <form class="inline" method="post" action="{{ url_for('admin_product_delete', pid=p.id) }}" data-confirm="Delete this product?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button class="btn danger sm">Delete</button></form></td></tr>
   {% else %}<tr><td colspan="5" class="muted">No products.</td></tr>{% endfor %}
 </table></div></div>

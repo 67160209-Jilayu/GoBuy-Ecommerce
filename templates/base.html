@@ -15,7 +15,7 @@
     {% if g.user %}
       {% if g.user.is_admin %}<a href="{{ url_for('admin_dashboard') }}">Admin</a>{% endif %}
       <a href="{{ url_for('account') }}">{{ g.user.name.split()[0] }}</a>
-      <form class="inline" method="post" action="{{ url_for('logout') }}"><button class="link">Log out</button></form>
+      <form class="inline" method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="link">Log out</button></form>
     {% else %}
       <a href="{{ url_for('login') }}">Log in</a>
       <a class="btn sm" href="{{ url_for('register') }}">Sign up</a>
@@ -27,5 +27,7 @@
   {% block content %}{% endblock %}
 </main>
 <footer><div class="wrap">© {{ now.year }} GoBuy · Simple, thoughtful goods</div></footer>
+<script src="{{ url_for('static', filename='app.js') }}" defer></script>
+{% block scripts %}{% endblock %}
 </body>
 </html>
