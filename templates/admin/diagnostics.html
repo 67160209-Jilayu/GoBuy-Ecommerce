@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Diagnostics{% endblock %}
+{% block content %}
+{% set active='diag' %}{% include "admin/_nav.html" %}
+<div class="card" style="max-width:640px">
+  <h2>Deployment check</h2>
+  <table>{% for k, v in info.items() %}<tr><td class="muted">{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}</table>
+  {% if result %}<div class="flash {{ result[0] }}" style="margin-top:14px">{{ result[1] }}</div>{% endif %}
+  <form method="post" style="margin-top:14px"><button class="btn">Run Cloudinary upload test</button></form>
+  <p class="small muted">Uploads a 1×1 image to a test folder and deletes it again.</p>
+</div>
+{% endblock %}
