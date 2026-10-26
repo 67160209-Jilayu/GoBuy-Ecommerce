@@ -90,9 +90,15 @@
     xhr.onload = () => {
       let j = {};
       try { j = JSON.parse(xhr.responseText); } catch (_) {}
-      if (j.redirect) location.href = j.redirect; else fail(j.error || 'Save failed (' + xhr.status + ').');
+      if (j.redirect) { location.href = j.redirect; return; }
+      if (j.error) return fail(j.error);
+      if (xhr.status === 401 || xhr.status === 403) return fail('You are not logged in as admin. Log in again.');
+      if (xhr.status === 400) return fail('Your session expired. Reload this page and try again.');
+      if (xhr.status >= 500) return fail('Server error (' + xhr.status + '). The upload may have timed out or been too large; check Admin → Diagnostics.');
+      fail('Save failed (' + xhr.status + ').');
     };
-    xhr.onerror = () => fail('Network error while uploading.');
+    xhr.onerror = () => fail('Connection lost while uploading. The file may be too large or the server restarted. Try fewer/smaller files.');
+    xhr.ontimeout = xhr.onerror;
     xhr.send(new FormData(form));
   });
 })();

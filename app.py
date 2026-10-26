@@ -398,10 +398,13 @@ def save_media(file, allowed=ALLOWED_EXT, label="Image must be png, jpg, webp or
         try:
             up = cloudinary.uploader.upload_large if kind == "video" else cloudinary.uploader.upload
             return up(file.stream, resource_type=kind, folder="gobuy")["secure_url"]
-        except Exception:
+        except Exception as e:  # only admins can reach this, so showing the reason is safe
             app.logger.exception("Cloudinary upload failed")
-            flash("Upload failed, please try again.", "error")
+            flash(f"Upload of {file.filename} failed: {e}", "error")
             return None
+    if IS_PROD:  # Render's disk is wiped on every restart/deploy: never keep media there
+        flash("Image storage is not configured. Set CLOUDINARY_URL in Render's environment variables.", "error")
+        return None
     name = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
     file.save(os.path.join(UPLOAD_DIR, name))
     return "uploads/" + name
@@ -750,6 +753,35 @@ def admin_order(oid):
         return redirect(url_for("admin_order", oid=oid))
     items = db().execute("SELECT * FROM order_items WHERE order_id=?", (oid,)).fetchall()
     return render_template("admin/order.html", o=o, items=items)
+
+
+@app.route("/admin/diagnostics", methods=["GET", "POST"])
+@admin_required
+def admin_diagnostics():
+    """Self-check for deployment problems: database, media storage, and a real test upload."""
+    info = {"Database": "Postgres (Neon)" if USE_PG else "SQLite (local file)",
+            "Environment": "Render (production)" if IS_PROD else "local",
+            "Media storage": "Cloudinary" if USE_CLOUDINARY else "local disk (static/uploads)"}
+    if USE_CLOUDINARY:
+        cfg = cloudinary.config()
+        info["Cloudinary cloud name"] = cfg.cloud_name or "MISSING"
+        info["Cloudinary API key"] = (cfg.api_key[:3] + "…") if cfg.api_key else "MISSING"
+        info["Cloudinary API secret"] = "set" if cfg.api_secret else "MISSING"
+    result = None
+    if request.method == "POST":
+        if not USE_CLOUDINARY:
+            result = ("error", "CLOUDINARY_URL is not set, so uploads " +
+                      ("will fail on Render." if IS_PROD else "are saved to local disk."))
+        else:
+            tiny_png = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+            try:
+                up = cloudinary.uploader.upload(tiny_png, folder="gobuy-test")
+                cloudinary.uploader.destroy(up["public_id"])
+                result = ("ok", "Test upload to Cloudinary succeeded.")
+            except Exception as e:
+                app.logger.exception("Cloudinary diagnostics failed")
+                result = ("error", f"Cloudinary rejected the upload: {e}")
+    return render_template("admin/diagnostics.html", info=info, result=result)
 
 
 @app.route("/admin/products")
