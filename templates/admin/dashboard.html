@@ -8,6 +8,8 @@
   <div class="stat"><div class="l">Today</div><div class="v">{{ stats.today|money }}</div></div>
   <div class="stat"><div class="l">Orders</div><div class="v">{{ stats.orders }}</div></div>
   <div class="stat"><div class="l">To fulfil</div><div class="v">{{ stats.pending }}</div></div>
+  <div class="stat"><div class="l">Problems</div><div class="v"><a href="{{ url_for('admin_orders', status='issue') }}" style="color:{{ 'var(--bad)' if stats.issues else 'inherit' }}">{{ stats.issues }}</a></div></div>
+  <div class="stat"><div class="l">Reviews to reply</div><div class="v"><a href="{{ url_for('admin_reviews', f='unreplied') }}">{{ stats.to_reply }}</a></div></div>
   <div class="stat"><div class="l">Avg. order</div><div class="v">{{ stats.aov|money }}</div></div>
 </div>
 <div class="cols">

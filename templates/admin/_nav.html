@@ -1,6 +1,7 @@
 <div class="admin-nav">
   <a class="{{ 'on' if active=='dash' }}" href="{{ url_for('admin_dashboard') }}">Dashboard</a>
   <a class="{{ 'on' if active=='orders' }}" href="{{ url_for('admin_orders') }}">Orders</a>
+  <a class="{{ 'on' if active=='reviews' }}" href="{{ url_for('admin_reviews') }}">Reviews</a>
   <a class="{{ 'on' if active=='products' }}" href="{{ url_for('admin_products') }}">Inventory</a>
   <a class="{{ 'on' if active=='diag' }}" href="{{ url_for('admin_diagnostics') }}">Diagnostics</a>
 </div>

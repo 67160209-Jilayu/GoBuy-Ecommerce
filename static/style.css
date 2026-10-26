@@ -132,3 +132,48 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 #existing .mitem:first-child::after{content:"First";position:absolute;left:0;bottom:0;right:0;background:rgba(35,127,72,.9);color:#fff;font-size:.68rem;text-align:center;padding:1px 0}
 .progress{height:8px;background:var(--g100);border-radius:99px;overflow:hidden;margin:8px 0}
 .progress i{display:block;height:100%;width:0;background:var(--g500);transition:width .15s}
+
+/* stars & reviews */
+.stars{--p:0%;display:inline-block;font-size:1rem;letter-spacing:2px;line-height:1;background:linear-gradient(90deg,#f5a623 var(--p),#d3ddd7 var(--p));-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
+.stars.lg{font-size:1.4rem}
+.rate{display:flex;align-items:center;gap:6px}
+.reviews{margin-top:44px;padding-top:24px;border-top:1px solid var(--line)}
+.rsummary{display:grid;grid-template-columns:150px 1fr 220px;gap:28px;align-items:center;margin-bottom:20px}
+.ravg .big{font-size:2.6rem;font-weight:700;color:var(--g700);line-height:1}
+.rbars{display:flex;flex-direction:column;gap:5px}
+.rbar{display:grid;grid-template-columns:38px 1fr 28px;gap:8px;align-items:center;font-size:.82rem;color:var(--ink)}
+.rbar i{display:block;height:8px;background:var(--g100);border-radius:99px;overflow:hidden}
+.rbar b{display:block;height:100%;background:#f5a623}
+.rbar.on,.rbar:hover{color:var(--g700);font-weight:600}
+.rtools{display:flex;gap:10px;align-items:center;margin-bottom:6px}.rtools select{width:auto}
+.review{padding:18px 0;border-bottom:1px solid var(--line)}
+.review .rhead{display:flex;gap:10px;align-items:center;margin-bottom:2px}
+.rbody{white-space:pre-line;margin:8px 0}
+.rphotos{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.rphotos img{width:84px;height:84px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+.reply{background:var(--g50);border-left:3px solid var(--g500);padding:10px 14px;border-radius:8px;margin:10px 0;font-size:.92rem}
+.ractions{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}.ractions form{display:inline}
+.btn.voted{background:var(--g100);border-color:var(--g500)}
+.pager{display:flex;gap:14px;align-items:center;justify-content:center;margin-top:18px}
+.starinput{display:inline-flex;flex-direction:row-reverse;justify-content:flex-end;gap:2px}
+.starinput input{position:absolute;opacity:0;width:1px;height:1px}
+.starinput label{margin:0;font-size:2.2rem;line-height:1;color:#d3ddd7;cursor:pointer;transition:color .1s}
+.starinput input:checked~label,.starinput label:hover,.starinput label:hover~label{color:#f5a623}
+.starinput input:focus-visible+label{outline:2px solid var(--g500);border-radius:4px}
+
+/* order progress, timeline, callout */
+.steps{list-style:none;display:flex;margin:18px 0 22px;padding:0}
+.steps li{flex:1;text-align:center;font-size:.82rem;color:var(--muted);position:relative}
+.steps li span{display:flex;width:30px;height:30px;margin:0 auto 6px;border-radius:50%;background:var(--g100);color:var(--muted);align-items:center;justify-content:center;font-weight:600;position:relative;z-index:1}
+.steps li::before{content:"";position:absolute;top:14px;left:-50%;width:100%;height:2px;background:var(--g100)}
+.steps li:first-child::before{display:none}
+.steps li.done span{background:var(--g500);color:#fff}.steps li.done::before{background:var(--g500)}
+.steps li.now{color:var(--g700);font-weight:600}
+.timeline{list-style:none;margin:0;padding:0 0 0 6px;border-left:2px solid var(--g100)}
+.timeline li{position:relative;padding:0 0 16px 18px}.timeline li:last-child{padding-bottom:0}
+.timeline .dot{position:absolute;left:-9px;top:4px;width:12px;height:12px;border-radius:50%;background:var(--g500);border:2px solid #fff}
+.timeline li.cancelled .dot{background:var(--bad)}
+.callout{display:flex;gap:16px;align-items:center;justify-content:space-between;background:var(--g50);border:1px solid var(--g200);border-radius:var(--r);padding:16px 20px;margin-bottom:20px;flex-wrap:wrap}
+code{background:var(--g50);padding:1px 6px;border-radius:5px;font-size:.88em}
+.pill.delivered{background:var(--g500);color:#fff}
+@media(max-width:760px){.rsummary{grid-template-columns:1fr}.steps li{font-size:.7rem}}

@@ -4,16 +4,18 @@
 {% set active='orders' %}{% include "admin/_nav.html" %}
 <div class="chips">
   <a class="chip {{ 'on' if not status }}" href="{{ url_for('admin_orders') }}">All</a>
+  <a class="chip {{ 'on' if status == 'issue' }}" href="{{ url_for('admin_orders', status='issue') }}">⚠ Problems</a>
   {% for s in statuses %}<a class="chip {{ 'on' if status == s }}" href="{{ url_for('admin_orders', status=s) }}">{{ s|capitalize }}</a>{% endfor %}
 </div>
 <div class="card"><div class="tablewrap"><table>
-  <tr><th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th class="right">Total</th><th></th></tr>
+  <tr><th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th>Tracking</th><th class="right">Total</th><th></th></tr>
   {% for o in orders %}
   <tr><td><a href="{{ url_for('admin_order', oid=o.id) }}">#{{ o.id }}</a></td><td>{{ o.created_at|dt }}</td>
   <td>{{ o.customer or 'Guest' }}<br><span class="muted small">{{ o.email }}</span></td>
   <td><form method="post" action="{{ url_for('admin_order', oid=o.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><select name="status" data-autosubmit style="width:auto;padding:4px 8px">
     {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if s == o.status }}>{{ s|capitalize }}</option>{% endfor %}</select></form></td>
+  <td class="small">{% if o.tracking %}{{ o.carrier }} <code>{{ o.tracking }}</code>{% endif %}{% if o.issue %}<br><span class="tag bad">⚠ problem</span>{% endif %}</td>
   <td class="right">{{ o.total|money }}</td><td class="right"><a href="{{ url_for('admin_order', oid=o.id) }}">View</a></td></tr>
-  {% else %}<tr><td colspan="6" class="muted">No orders found.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="7" class="muted">No orders found.</td></tr>{% endfor %}
 </table></div></div>
 {% endblock %}

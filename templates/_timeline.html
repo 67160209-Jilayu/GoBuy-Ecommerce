@@ -1,0 +1,8 @@
+<ol class="timeline">
+  {% for e in events %}
+  <li class="{{ e.status }}"><span class="dot"></span>
+    <div><strong>{{ e.status|capitalize }}</strong>
+      <span class="muted small">{{ e.at|dt }} · {{ {'customer': 'Customer', 'admin': 'Store', 'system': 'Automatic'}.get(e.actor, e.actor) }}</span>
+      {% if e.note %}<div class="small">{{ e.note }}</div>{% endif %}</div></li>
+  {% else %}<li><span class="dot"></span><div class="muted small">No updates yet.</div></li>{% endfor %}
+</ol>

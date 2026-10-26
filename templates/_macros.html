@@ -6,3 +6,4 @@
 {% elif p.stock <= p.low_stock_threshold %}<span class="tag warn">Only {{ p.stock }} left</span>
 {% else %}<span class="tag">In stock</span>{% endif %}
 {% endmacro %}
+{% macro stars(avg, size='') %}<span class="stars {{ size }}" style="--p:{{ ((avg or 0)|float / 5 * 100)|round(1) }}%" role="img" aria-label="{{ '%.1f'|format((avg or 0)|float) }} out of 5">★★★★★</span>{% endmacro %}

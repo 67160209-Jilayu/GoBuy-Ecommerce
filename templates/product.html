@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import pimg, stock_tag %}
+{% from "_macros.html" import pimg, stock_tag, stars %}
 {% block title %}{{ p.name }}{% endblock %}
 {% block content %}
 <p class="small"><a href="{{ url_for('catalog') }}">← Back to shop</a></p>
@@ -24,6 +24,7 @@
   <div>
     <span class="small muted">{{ p.category or 'Uncategorized' }}</span>
     <h1>{{ p.name }}</h1>
+    {% if count %}<a href="#reviews" class="rate">{{ stars(avg) }} <span class="muted small">{{ '%.1f'|format(avg) }} · {{ count }} review{{ 's' if count != 1 }}</span></a>{% endif %}
     <p class="price" style="font-size:1.5rem;margin:.2rem 0 .8rem">{{ p.price|money }}</p>
     <p>{{ stock_tag(p) }}</p>
     <p class="muted">{{ p.description }}</p>
@@ -35,4 +36,67 @@
     {% else %}<button class="btn" disabled style="margin-top:20px">Out of stock</button>{% endif %}
   </div>
 </div>
+
+<section id="reviews" class="reviews">
+  <h2>Customer reviews</h2>
+  <div class="rsummary">
+    <div class="ravg">
+      <div class="big">{{ '%.1f'|format(avg) if count else '–' }}</div>
+      {{ stars(avg, 'lg') }}
+      <div class="muted small">{{ count }} review{{ 's' if count != 1 }}</div>
+    </div>
+    <div class="rbars">
+      {% for k in [5, 4, 3, 2, 1] %}
+      <a class="rbar {{ 'on' if star_filter == k }}" href="{{ url_for('product', pid=p.id, stars=k, rsort=(rsort if rsort != 'recent' else None)) }}#reviews">
+        <span>{{ k }} ★</span><i><b style="width:{{ (dist[k] / count * 100)|round if count else 0 }}%"></b></i><span>{{ dist[k] }}</span></a>
+      {% endfor %}
+    </div>
+    <div class="ract">
+      {% if not g.user %}<a class="btn" href="{{ url_for('login', next=request.path) }}">Log in to write a review</a>
+      {% elif eligible %}<a class="btn" href="{{ url_for('review_form', pid=p.id) }}">{{ '✎ Edit your review' if mine else '★ Write a review' }}</a>
+      {% else %}<p class="small muted">Only customers who have received this product can review it.</p>{% endif %}
+      {% if mine and mine.hidden %}<p class="small" style="color:var(--bad)">Your review is currently hidden by the store.</p>{% endif %}
+    </div>
+  </div>
+
+  {% if count %}
+  <form class="rtools" method="get" action="{{ url_for('product', pid=p.id) }}#reviews">
+    {% if star_filter %}<input type="hidden" name="stars" value="{{ star_filter }}">{% endif %}
+    <select name="rsort" data-autosubmit>
+      {% for v, l in [('recent', 'Most recent'), ('helpful', 'Most helpful'), ('high', 'Highest rating'), ('low', 'Lowest rating')] %}
+      <option value="{{ v }}" {{ 'selected' if rsort == v }}>{{ l }}</option>{% endfor %}
+    </select>
+    {% if star_filter %}<a class="chip on" href="{{ url_for('product', pid=p.id, rsort=(rsort if rsort != 'recent' else None)) }}#reviews">{{ star_filter }} ★ ✕</a>{% endif %}
+  </form>
+  {% endif %}
+
+  {% for r in reviews %}
+  <article class="review" id="review-{{ r.id }}">
+    <div class="rhead">{{ stars(r.rating) }} {% if r.title %}<strong>{{ r.title }}</strong>{% endif %}</div>
+    <div class="muted small">{{ r.author|reviewer }} · <span class="tag">Verified purchase</span> · {{ r.created_at|day }}{% if r.updated_at != r.created_at %} · edited{% endif %}</div>
+    {% if r.body %}<p class="rbody">{{ r.body }}</p>{% endif %}
+    {% if r.photos %}<div class="rphotos">{% for u in r.photos %}<a href="{{ u|media }}" target="_blank" rel="noopener"><img src="{{ u|media }}" alt="Review photo" loading="lazy"></a>{% endfor %}</div>{% endif %}
+    {% if r.admin_reply %}<div class="reply"><strong>Reply from the store</strong> <span class="muted small">{{ r.replied_at|day }}</span><div>{{ r.admin_reply }}</div></div>{% endif %}
+    <div class="ractions">
+      {% if g.user and g.user.id != r.user_id %}
+      <form method="post" action="{{ url_for('review_helpful', rid=r.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn ghost sm {{ 'voted' if r.voted }}">👍 Helpful ({{ r.helpful }})</button></form>
+      {% else %}<span class="small muted">{{ r.helpful }} found this helpful</span>{% endif %}
+      {% if g.user and g.user.id == r.user_id %}<a class="small" href="{{ url_for('review_form', pid=p.id) }}">Edit</a>{% endif %}
+      {% if g.user and (g.user.id == r.user_id or g.user.is_admin) %}
+      <form method="post" action="{{ url_for('review_delete', rid=r.id) }}" data-confirm="Delete this review?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger sm">Delete</button></form>{% endif %}
+    </div>
+  </article>
+  {% else %}
+  <p class="muted">{{ 'No reviews match this filter.' if star_filter else 'No reviews yet. Be the first once you have received this product.' }}</p>
+  {% endfor %}
+
+  {% if pages > 1 %}
+  <div class="pager">
+    {% if page > 1 %}<a class="btn ghost sm" href="{{ url_for('product', pid=p.id, rpage=page - 1, rsort=(rsort if rsort != 'recent' else None), stars=star_filter) }}#reviews">← Newer</a>{% endif %}
+    <span class="muted small">Page {{ page }} of {{ pages }}</span>
+    {% if page < pages %}<a class="btn ghost sm" href="{{ url_for('product', pid=p.id, rpage=page + 1, rsort=(rsort if rsort != 'recent' else None), stars=star_filter) }}#reviews">Older →</a>{% endif %}
+  </div>
+  {% endif %}
+</section>
 {% endblock %}

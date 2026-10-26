@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import pimg, stock_tag %}
+{% from "_macros.html" import pimg, stock_tag, stars %}
 {% block content %}
 {% if not q and not cat %}
 <div class="hero"><h1>Everyday goods, made simple.</h1><p>Browse our curated collection for the kitchen, home and beyond.</p></div>
@@ -8,7 +8,7 @@
   <input type="search" name="q" value="{{ q }}" placeholder="Search products…">
   {% if cat %}<input type="hidden" name="category" value="{{ cat }}">{% endif %}
   <select name="sort" data-autosubmit>
-    {% for v, l in [('new','Newest'),('price_asc','Price: low to high'),('price_desc','Price: high to low'),('name','Name')] %}
+    {% for v, l in [('new','Newest'),('price_asc','Price: low to high'),('price_desc','Price: high to low'),('rating','Top rated'),('name','Name')] %}
     <option value="{{ v }}" {{ 'selected' if sort == v }}>{{ l }}</option>{% endfor %}
   </select>
   <button class="btn">Search</button>
@@ -25,6 +25,7 @@
     <div class="pbody">
       <span class="cat">{{ p.category or 'Uncategorized' }}</span>
       <span class="name">{{ p.name }}</span>
+      {% if p.n_r %}<span class="rate">{{ stars(p.avg_r) }} <span class="muted small">{{ '%.1f'|format(p.avg_r|float) }} ({{ p.n_r }})</span></span>{% endif %}
       <span class="price">{{ p.price|money }}</span>
       <span>{{ stock_tag(p) }}{% if p.video %} <span class="tag">▶ Video</span>{% endif %}</span>
     </div>

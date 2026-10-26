@@ -7,6 +7,7 @@
         existing = document.getElementById('existing'), msg = document.getElementById('uploadMsg'),
         bar = document.getElementById('progress'), MB = 1024 * 1024;
   const dt = new DataTransfer();
+  const imagesOnly = dz.hasAttribute('data-images-only'), maxFiles = parseInt(dz.dataset.max || '0', 10);
   const isVideo = f => f.type.startsWith('video/') || /\.(mp4|webm|mov|m4v|ogg)$/i.test(f.name);
   const isImage = f => f.type.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(f.name);
 
@@ -21,6 +22,8 @@
     const files = [...dt.files];
     for (const f of list) {
       if (!isVideo(f) && !isImage(f)) { msg.textContent = f.name + ': only images and videos are allowed.'; continue; }
+      if (imagesOnly && !isImage(f)) { msg.textContent = f.name + ': only photos are allowed here.'; continue; }
+      if (maxFiles && files.length + (existing ? existing.children.length : 0) >= maxFiles) { msg.textContent = 'You can add up to ' + maxFiles + ' photos.'; break; }
       if (isVideo(f) ? f.size > 100 * MB : f.size > 10 * MB) { msg.textContent = f.name + ': too large (images 10 MB, videos 100 MB).'; continue; }
       if (files.some(x => x.name === f.name && x.size === f.size)) continue;
       files.push(f);

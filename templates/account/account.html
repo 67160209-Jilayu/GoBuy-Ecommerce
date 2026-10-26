@@ -2,6 +2,10 @@
 {% block title %}My account{% endblock %}
 {% block content %}
 <h1>My account</h1>
+{% set waiting = orders|selectattr('status', 'equalto', 'shipped')|list %}
+{% if waiting %}<div class="callout"><div><strong>{{ waiting|length }} order{{ 's' if waiting|length > 1 }} on the way</strong>
+  <div class="small muted">Open the order and press “I received my order” once it arrives.</div></div>
+  <a class="btn" href="{{ url_for('order_done', oid=waiting[0].id) }}">Confirm receipt</a></div>{% endif %}
 <div class="cols" style="grid-template-columns:1fr 1fr">
   <div class="card">
     <h2>Profile</h2>
@@ -42,7 +46,7 @@
     <tr><th>Order</th><th>Date</th><th>Status</th><th class="right">Total</th></tr>
     {% for o in orders %}
     <tr><td><a href="{{ url_for('order_done', oid=o.id) }}">#{{ o.id }}</a></td><td>{{ o.created_at|dt }}</td>
-    <td><span class="pill {{ o.status }}">{{ o.status }}</span></td><td class="right">{{ o.total|money }}</td></tr>
+    <td><span class="pill {{ o.status }}">{{ o.status }}</span>{% if o.status == 'shipped' %} <a class="small" href="{{ url_for('order_done', oid=o.id) }}">confirm →</a>{% endif %}</td><td class="right">{{ o.total|money }}</td></tr>
     {% endfor %}
   </table></div>
   {% else %}<p class="muted">You haven't placed any orders yet.</p>{% endif %}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_macros.html" import stars %}
+{% block title %}Reviews{% endblock %}
+{% block content %}
+{% set active='reviews' %}{% include "admin/_nav.html" %}
+<div class="chips">
+  {% for v, l in [('', 'All'), ('unreplied', 'Needs reply'), ('low', '★ 1–2'), ('hidden', 'Hidden')] %}
+  <a class="chip {{ 'on' if flt == v }}" href="{{ url_for('admin_reviews', f=v or None) }}">{{ l }}</a>{% endfor %}
+</div>
+{% for r in reviews %}
+<div class="card" style="margin-bottom:14px">
+  <div class="rhead">{{ stars(r.rating) }} {% if r.title %}<strong>{{ r.title }}</strong>{% endif %}
+    {% if r.hidden %}<span class="tag bad">Hidden</span>{% endif %}</div>
+  <div class="muted small"><a href="{{ url_for('product', pid=r.product_id) }}#review-{{ r.id }}">{{ r.product_name }}</a> · {{ r.author }} · {{ r.created_at|day }}</div>
+  {% if r.body %}<p class="rbody">{{ r.body }}</p>{% endif %}
+  {% if r.photos %}<div class="rphotos">{% for u in r.photos %}<a href="{{ u|media }}" target="_blank" rel="noopener"><img src="{{ u|media }}" alt="" loading="lazy"></a>{% endfor %}</div>{% endif %}
+  <form method="post" action="{{ url_for('admin_review_reply', rid=r.id) }}" style="display:flex;gap:8px;margin-top:10px"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input name="reply" maxlength="1000" value="{{ r.admin_reply or '' }}" placeholder="Public reply from the store…" style="flex:1"><button class="btn sm">{{ 'Update reply' if r.admin_reply else 'Reply' }}</button></form>
+  <div class="ractions">
+    <form method="post" action="{{ url_for('admin_review_hide', rid=r.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn ghost sm">{{ 'Show' if r.hidden else 'Hide' }}</button></form>
+    <form method="post" action="{{ url_for('review_delete', rid=r.id) }}" data-confirm="Delete this review permanently?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger sm">Delete</button></form>
+  </div>
+</div>
+{% else %}<div class="empty">No reviews here.</div>{% endfor %}
+{% if pages > 1 %}<div class="pager">
+  {% if page > 1 %}<a class="btn ghost sm" href="{{ url_for('admin_reviews', f=flt or None, page=page - 1) }}">← Newer</a>{% endif %}
+  <span class="muted small">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="btn ghost sm" href="{{ url_for('admin_reviews', f=flt or None, page=page + 1) }}">Older →</a>{% endif %}</div>{% endif %}
+{% endblock %}

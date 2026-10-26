@@ -49,6 +49,11 @@ MAX_CART_LINES = 50
 MAX_QTY = 999
 MIN_PASSWORD = 8
 NON_UPLOAD_BODY_LIMIT = 2 * 1024 * 1024
+AUTO_CONFIRM_DAYS = 7      # shipped orders confirm themselves after this many days
+ISSUE_WINDOW_DAYS = 14     # how long after delivery a customer can report a problem
+REVIEW_PAGE = 8
+MAX_REVIEW_PHOTOS = 3
+REVIEW_BODY_LIMIT = 32 * 1024 * 1024
 ORDER_STATUSES = ["pending", "paid", "processing", "shipped", "delivered", "cancelled"]
 LOW_STOCK_DEFAULT = 5
 
@@ -137,6 +142,21 @@ CREATE TABLE IF NOT EXISTS orders(
 CREATE TABLE IF NOT EXISTS product_media(
   id {PK}, product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   kind TEXT NOT NULL, url TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS order_events(
+  id {PK}, order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  status TEXT NOT NULL, note TEXT DEFAULT '', actor TEXT DEFAULT '', at TIMESTAMP NOT NULL);
+CREATE TABLE IF NOT EXISTS product_reviews(
+  id {PK}, product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  rating INTEGER NOT NULL, title TEXT DEFAULT '', body TEXT DEFAULT '',
+  hidden INTEGER NOT NULL DEFAULT 0, admin_reply TEXT DEFAULT '', replied_at TIMESTAMP,
+  created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL, UNIQUE(product_id, user_id));
+CREATE TABLE IF NOT EXISTS review_media(
+  id {PK}, review_id INTEGER NOT NULL REFERENCES product_reviews(id) ON DELETE CASCADE,
+  url TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS review_votes(
+  review_id INTEGER NOT NULL REFERENCES product_reviews(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY(review_id, user_id));
 CREATE TABLE IF NOT EXISTS auth_attempts(
   id {PK}, key TEXT NOT NULL, at TIMESTAMP NOT NULL);
 CREATE INDEX IF NOT EXISTS auth_attempts_key ON auth_attempts(key, at);
@@ -180,6 +200,15 @@ def init_db():
     elif "token" not in [r[1] for r in conn.execute("PRAGMA table_info(orders)")]:
         conn.execute("ALTER TABLE orders ADD COLUMN token TEXT")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS orders_token_uq ON orders(token)")
+    # delivery tracking / receipt confirmation columns
+    for col, decl in (("carrier", "TEXT DEFAULT ''"), ("tracking", "TEXT DEFAULT ''"),
+                      ("shipped_at", "TIMESTAMP"), ("received_at", "TIMESTAMP"),
+                      ("issue", "TEXT DEFAULT ''"), ("issue_at", "TIMESTAMP")):
+        if USE_PG:
+            conn.execute(f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS {col} {decl}")
+        elif col not in [x[1] for x in conn.execute("PRAGMA table_info(orders)")]:
+            conn.execute(f"ALTER TABLE orders ADD COLUMN {col} {decl}")
+    conn.execute("CREATE INDEX IF NOT EXISTS reviews_product ON product_reviews(product_id)")
 
     # one-time move of the old single image/video columns into product_media
     for col, kind in (("image", "image"), ("video", "video")):
@@ -234,11 +263,24 @@ def guards():
         return
     # only an admin saving a product may send a large body; everyone else is capped before any parsing
     big_ok = bool(g.user and g.user["is_admin"] and request.path.startswith("/admin/products"))
-    if (request.content_length or 0) > NON_UPLOAD_BODY_LIMIT and not big_ok:
+    limit = NON_UPLOAD_BODY_LIMIT
+    if big_ok:
+        limit = app.config["MAX_CONTENT_LENGTH"]
+    elif g.user and re.fullmatch(r"/product/\d+/review", request.path):
+        limit = REVIEW_BODY_LIMIT
+    if (request.content_length or 0) > limit:
         abort(413)
     sent = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token") or ""
-    if not hmac.compare_digest(sent, session.get("csrf", "")):
-        abort(400)
+    expected = session.get("csrf", "")
+    if not sent or not expected or not hmac.compare_digest(sent, expected):
+        # log *why*: no session cookie reached us (cookie blocked/expired) vs. a stale page's token
+        app.logger.warning("CSRF rejected on %s %s: session_has_token=%s form_has_token=%s",
+                           request.method, request.path, "csrf" in session, bool(sent))
+        msg = "Your session expired. Please try again."
+        if is_xhr():
+            return jsonify(error=msg), 400
+        flash(msg, "error")
+        return redirect(back("catalog"))
 
 
 @app.after_request
@@ -359,6 +401,18 @@ def fmt_dt(v):
     return to_local(v).strftime("%Y-%m-%d %H:%M") if v else ""
 
 
+@app.template_filter("day")
+def fmt_day(v):
+    return to_local(v).strftime("%d %b %Y") if v else ""
+
+
+@app.template_filter("reviewer")
+def reviewer_name(name):
+    """Privacy-friendly display name: 'Somchai K.'"""
+    parts = (name or "Customer").split()
+    return parts[0] if len(parts) == 1 else f"{parts[0]} {parts[-1][0]}."
+
+
 @app.template_filter("media")
 def media_url(path):
     """Cloudinary URLs are absolute; local dev uploads live under /static."""
@@ -416,7 +470,11 @@ def catalog():
     q = request.args.get("q", "").strip()
     cat = request.args.get("category", type=int)
     sort = request.args.get("sort", "new")
-    sql = "SELECT p.*, c.name AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.active=1"
+    sql = ("SELECT p.*, c.name AS category, rv.avg_r, rv.n_r FROM products p "
+           "LEFT JOIN categories c ON c.id=p.category_id "
+           "LEFT JOIN (SELECT product_id, CAST(AVG(rating) AS DOUBLE PRECISION) AS avg_r, COUNT(*) AS n_r "
+           "FROM product_reviews WHERE hidden=0 GROUP BY product_id) rv ON rv.product_id=p.id "
+           "WHERE p.active=1")
     args = []
     if q:
         sql += " AND (p.name LIKE ? OR p.description LIKE ?)"
@@ -425,20 +483,234 @@ def catalog():
         sql += " AND p.category_id=?"
         args.append(cat)
     sql += {"price_asc": " ORDER BY p.price ASC", "price_desc": " ORDER BY p.price DESC",
-            "name": " ORDER BY p.name"}.get(sort, " ORDER BY p.id DESC")
+            "name": " ORDER BY p.name",
+            "rating": " ORDER BY COALESCE(rv.avg_r,0) DESC, COALESCE(rv.n_r,0) DESC"}.get(sort, " ORDER BY p.id DESC")
     products = db().execute(sql, args).fetchall()
     cats = db().execute("SELECT * FROM categories ORDER BY name").fetchall()
     return render_template("catalog.html", products=products, cats=cats, q=q, cat=cat, sort=sort)
 
 
+def can_review(conn, uid, pid):
+    """Only people whose order containing this product was confirmed received may review it."""
+    return bool(conn.execute("SELECT 1 FROM orders o JOIN order_items i ON i.order_id=o.id "
+                             "WHERE o.user_id=? AND i.product_id=? AND o.status='delivered' LIMIT 1",
+                             (uid, pid)).fetchone())
+
+
+def load_reviews(conn, pid, sort, stars, page, uid):
+    base = "FROM product_reviews r JOIN users u ON u.id=r.user_id WHERE r.product_id=? AND r.hidden=0"
+    args = [pid]
+    if stars in (1, 2, 3, 4, 5):
+        base += " AND r.rating=?"
+        args.append(stars)
+    total = first(conn.execute(f"SELECT COUNT(*) {base}", args).fetchone())
+    order = {"helpful": "helpful DESC, r.created_at DESC", "high": "r.rating DESC, r.created_at DESC",
+             "low": "r.rating ASC, r.created_at DESC"}.get(sort, "r.created_at DESC")
+    rows = [dict(x) for x in conn.execute(
+        f"SELECT r.*, u.name AS author, (SELECT COUNT(*) FROM review_votes v WHERE v.review_id=r.id) AS helpful "
+        f"{base} ORDER BY {order} LIMIT ? OFFSET ?", (*args, REVIEW_PAGE, (page - 1) * REVIEW_PAGE)).fetchall()]
+    ids = [x["id"] for x in rows]
+    photos, voted = {}, set()
+    if ids:
+        marks = ",".join("?" * len(ids))
+        for m in conn.execute(f"SELECT review_id, url FROM review_media WHERE review_id IN ({marks}) "
+                              f"ORDER BY position, id", ids).fetchall():
+            photos.setdefault(m["review_id"], []).append(m["url"])
+        if uid:
+            voted = {v["review_id"] for v in conn.execute(
+                f"SELECT review_id FROM review_votes WHERE user_id=? AND review_id IN ({marks})",
+                (uid, *ids)).fetchall()}
+    for x in rows:
+        x["photos"] = photos.get(x["id"], [])
+        x["voted"] = x["id"] in voted
+    return rows, total
+
+
 @app.route("/product/<int:pid>")
 def product(pid):
-    p = db().execute("SELECT p.*, c.name AS category FROM products p LEFT JOIN categories c "
+    conn = db()
+    p = conn.execute("SELECT p.*, c.name AS category FROM products p LEFT JOIN categories c "
                      "ON c.id=p.category_id WHERE p.id=? AND p.active=1", (pid,)).fetchone()
     if not p:
         abort(404)
-    media = db().execute("SELECT * FROM product_media WHERE product_id=? ORDER BY position, id", (pid,)).fetchall()
-    return render_template("product.html", p=p, media=media)
+    media = conn.execute("SELECT * FROM product_media WHERE product_id=? ORDER BY position, id", (pid,)).fetchall()
+    dist = {k: 0 for k in (5, 4, 3, 2, 1)}
+    for row in conn.execute("SELECT rating, COUNT(*) AS n FROM product_reviews WHERE product_id=? AND hidden=0 "
+                            "GROUP BY rating", (pid,)).fetchall():
+        dist[row["rating"]] = row["n"]
+    count = sum(dist.values())
+    avg = sum(k * v for k, v in dist.items()) / count if count else 0
+    sort = request.args.get("rsort", "recent")
+    stars = request.args.get("stars", type=int)
+    page = max(1, request.args.get("rpage", 1, type=int) or 1)
+    reviews, filtered = load_reviews(conn, pid, sort, stars, page, g.user["id"] if g.user else None)
+    mine, eligible = None, False
+    if g.user:
+        mine = conn.execute("SELECT * FROM product_reviews WHERE product_id=? AND user_id=?",
+                            (pid, g.user["id"])).fetchone()
+        eligible = bool(mine) or can_review(conn, g.user["id"], pid)
+    return render_template("product.html", p=p, media=media, dist=dist, count=count, avg=avg,
+                           reviews=reviews, filtered=filtered, rsort=sort, star_filter=stars, page=page,
+                           pages=max(1, -(-filtered // REVIEW_PAGE)), mine=mine, eligible=eligible)
+
+
+@app.route("/product/<int:pid>/review", methods=["GET", "POST"])
+@login_required
+def review_form(pid):
+    conn = db()
+    p = conn.execute("SELECT * FROM products WHERE id=?", (pid,)).fetchone()
+    if not p:
+        abort(404)
+    mine = conn.execute("SELECT * FROM product_reviews WHERE product_id=? AND user_id=?",
+                        (pid, g.user["id"])).fetchone()
+    if not mine and not can_review(conn, g.user["id"], pid):
+        flash("You can review a product once your order containing it has been marked as received.", "info")
+        return redirect(url_for("product", pid=pid))
+    photos = conn.execute("SELECT * FROM review_media WHERE review_id=? ORDER BY position, id",
+                          (mine["id"],)).fetchall() if mine else []
+    if request.method == "POST":
+        f = request.form
+        rating = f.get("rating", type=int)
+        title, body = f.get("title", "").strip()[:100], f.get("body", "").strip()[:2000]
+        if rating not in (1, 2, 3, 4, 5):
+            flash("Please choose a star rating.", "error")
+            return jsonify(redirect=request.url) if is_xhr() else render_template(
+                "review_form.html", p=p, mine=mine, photos=photos, form=f)
+        if not mine and throttled(f"rev:{g.user['id']}", limit=20, window=86400):
+            flash("You've posted a lot of reviews today. Please try again tomorrow.", "error")
+            return done(url_for("product", pid=pid))
+        now = _utc()
+        if mine:
+            rid = mine["id"]
+            conn.execute("UPDATE product_reviews SET rating=?, title=?, body=?, updated_at=? WHERE id=?",
+                         (rating, title, body, now, rid))
+        else:
+            rid = first(conn.execute(
+                "INSERT INTO product_reviews(product_id,user_id,rating,title,body,created_at,updated_at) "
+                "VALUES(?,?,?,?,?,?,?) RETURNING id", (pid, g.user["id"], rating, title, body, now, now)).fetchone())
+            record(f"rev:{g.user['id']}")
+        keep = set(f.getlist("keep", type=int))
+        kept = 0
+        for ph in photos:
+            if ph["id"] in keep:
+                kept += 1
+            else:
+                conn.execute("DELETE FROM review_media WHERE id=?", (ph["id"],))
+                delete_media(ph["url"], "image")
+        for fl in [x for x in request.files.getlist("media") if x and x.filename][:MAX_REVIEW_PHOTOS]:
+            if kept >= MAX_REVIEW_PHOTOS:
+                flash(f"Only {MAX_REVIEW_PHOTOS} photos per review.", "error")
+                break
+            if fl.filename.rsplit(".", 1)[-1].lower() not in ALLOWED_EXT:
+                flash(f"{fl.filename}: photos must be png, jpg, webp or gif.", "error")
+                continue
+            if file_size(fl) > MAX_IMAGE_BYTES:
+                flash(f"{fl.filename}: too large (max 10 MB).", "error")
+                continue
+            url = save_media(fl, ALLOWED_EXT, "", "image")
+            if url:
+                conn.execute("INSERT INTO review_media(review_id,url,position) VALUES(?,?,?)", (rid, url, kept))
+                kept += 1
+        conn.commit()
+        flash("Thanks! Your review has been saved.", "ok")
+        return done(url_for("product", pid=pid) + "#reviews")
+    return render_template("review_form.html", p=p, mine=mine, photos=photos, form={})
+
+
+def _delete_review(conn, rid):
+    for m in conn.execute("SELECT url FROM review_media WHERE review_id=?", (rid,)).fetchall():
+        delete_media(m["url"], "image")
+    conn.execute("DELETE FROM review_media WHERE review_id=?", (rid,))
+    conn.execute("DELETE FROM review_votes WHERE review_id=?", (rid,))
+    conn.execute("DELETE FROM product_reviews WHERE id=?", (rid,))
+
+
+@app.post("/review/<int:rid>/delete")
+@login_required
+def review_delete(rid):
+    conn = db()
+    rv = conn.execute("SELECT * FROM product_reviews WHERE id=?", (rid,)).fetchone()
+    if not rv or (rv["user_id"] != g.user["id"] and not g.user["is_admin"]):
+        abort(404)
+    _delete_review(conn, rid)
+    conn.commit()
+    flash("Review deleted.", "ok")
+    return redirect(back("catalog"))
+
+
+@app.post("/review/<int:rid>/helpful")
+@login_required
+def review_helpful(rid):
+    conn = db()
+    rv = conn.execute("SELECT * FROM product_reviews WHERE id=? AND hidden=0", (rid,)).fetchone()
+    if not rv:
+        abort(404)
+    if rv["user_id"] == g.user["id"]:
+        flash("You can't vote on your own review.", "info")
+    elif conn.execute("SELECT 1 FROM review_votes WHERE review_id=? AND user_id=?", (rid, g.user["id"])).fetchone():
+        conn.execute("DELETE FROM review_votes WHERE review_id=? AND user_id=?", (rid, g.user["id"]))
+        conn.commit()
+    else:
+        conn.execute("INSERT INTO review_votes(review_id,user_id) VALUES(?,?)", (rid, g.user["id"]))
+        conn.commit()
+    return redirect(back("catalog"))
+
+
+# ---------- order lifecycle ----------
+def log_event(conn, oid, status, actor, note=""):
+    conn.execute("INSERT INTO order_events(order_id,status,note,actor,at) VALUES(?,?,?,?,?)",
+                 (oid, status, note, actor, _utc()))
+
+
+def set_status(conn, oid, new, actor, note="", carrier=None, tracking=None):
+    """Single place where an order changes state: stock, timestamps, tracking and the timeline."""
+    o = conn.execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
+    old = o["status"]
+    new_carrier = (o["carrier"] or "") if carrier is None else carrier
+    new_tracking = (o["tracking"] or "") if tracking is None else tracking
+    ship_changed = (new_carrier, new_tracking) != ((o["carrier"] or ""), (o["tracking"] or ""))
+    if new == old and not ship_changed:
+        return False
+    if new != old:
+        lines = conn.execute("SELECT product_id, qty FROM order_items WHERE order_id=? "
+                             "AND product_id IS NOT NULL", (oid,)).fetchall()
+        for ln in lines:  # cancelling returns stock; reviving a cancelled order takes it again
+            if new == "cancelled":
+                conn.execute("UPDATE products SET stock=stock+? WHERE id=?", (ln["qty"], ln["product_id"]))
+            elif old == "cancelled":
+                conn.execute("UPDATE products SET stock=CASE WHEN stock>=? THEN stock-? ELSE 0 END WHERE id=?",
+                             (ln["qty"], ln["qty"], ln["product_id"]))
+        sets, args = ["status=?"], [new]
+        if new == "shipped" and not o["shipped_at"]:
+            sets.append("shipped_at=?"); args.append(_utc())
+        if new == "delivered" and not o["received_at"]:
+            sets.append("received_at=?"); args.append(_utc())
+        conn.execute(f"UPDATE orders SET {', '.join(sets)} WHERE id=?", (*args, oid))
+    if ship_changed:
+        conn.execute("UPDATE orders SET carrier=?, tracking=? WHERE id=?", (new_carrier, new_tracking, oid))
+    if new != old:
+        log_event(conn, oid, new, actor, note)
+    else:
+        log_event(conn, oid, new, actor, note or "Tracking details updated")
+    return True
+
+
+def auto_confirm(conn):
+    """Orders that were shipped long ago are confirmed automatically (no cron needed: runs on page views)."""
+    rows = conn.execute("SELECT id FROM orders WHERE status='shipped' AND COALESCE(shipped_at, created_at)<? "
+                        "AND (issue IS NULL OR issue='')", (_utc(AUTO_CONFIRM_DAYS * 86400),)).fetchall()
+    for row in rows:
+        set_status(conn, row["id"], "delivered", "system",
+                   f"Automatically confirmed {AUTO_CONFIRM_DAYS} days after shipping")
+    if rows:
+        conn.commit()
+
+
+def own_order(oid):
+    o = db().execute("SELECT * FROM orders WHERE id=? AND user_id=?", (oid, g.user["id"])).fetchone()
+    if not o:
+        abort(404)
+    return o
 
 
 # ---------- cart ----------
@@ -546,6 +818,7 @@ def checkout():
         for it in items:
             conn.execute("INSERT INTO order_items(order_id,product_id,name,price,qty) VALUES(?,?,?,?,?)",
                          (oid, it["p"]["id"], it["p"]["name"], it["p"]["price"], it["qty"]))
+        log_event(conn, oid, "pending", "customer", "Order placed")
         conn.commit()
         session["cart"] = {}
         return redirect(url_for("order_done", oid=oid))
@@ -555,11 +828,68 @@ def checkout():
 @app.route("/order/<int:oid>")
 @login_required
 def order_done(oid):
-    o = db().execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
+    conn = db()
+    auto_confirm(conn)
+    o = conn.execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
     if not o or (o["user_id"] != g.user["id"] and not g.user["is_admin"]):
         abort(404)
-    items = db().execute("SELECT * FROM order_items WHERE order_id=?", (oid,)).fetchall()
-    return render_template("account/order.html", o=o, items=items)
+    items = conn.execute("SELECT * FROM order_items WHERE order_id=?", (oid,)).fetchall()
+    events = conn.execute("SELECT * FROM order_events WHERE order_id=? ORDER BY at, id", (oid,)).fetchall()
+    reviewed = {x["product_id"] for x in conn.execute(
+        "SELECT product_id FROM product_reviews WHERE user_id=?", (o["user_id"],)).fetchall()}
+    can_report = o["status"] == "shipped" or (
+        o["status"] == "delivered" and o["received_at"] and
+        to_local(o["received_at"]) > datetime.now(STORE_TZ) - timedelta(days=ISSUE_WINDOW_DAYS))
+    auto_on = None
+    if o["status"] == "shipped" and not o["issue"]:
+        auto_on = to_local(o["shipped_at"] or o["created_at"]) + timedelta(days=AUTO_CONFIRM_DAYS)
+    return render_template("account/order.html", o=o, items=items, events=events, reviewed=reviewed,
+                           can_report=can_report, auto_on=auto_on, mine=o["user_id"] == g.user["id"])
+
+
+@app.post("/order/<int:oid>/received")
+@login_required
+def order_received(oid):
+    o = own_order(oid)
+    if o["status"] != "shipped":
+        flash("This order isn't waiting for confirmation.", "info")
+    else:
+        set_status(db(), oid, "delivered", "customer", "Customer confirmed the parcel was received")
+        db().commit()
+        flash("Thank you! Your order is complete — you can now review the items you bought.", "ok")
+    return redirect(url_for("order_done", oid=oid))
+
+
+@app.post("/order/<int:oid>/cancel")
+@login_required
+def order_cancel(oid):
+    o = own_order(oid)
+    if o["status"] != "pending":
+        flash("Only orders that haven't been processed yet can be cancelled. Please report a problem instead.", "error")
+    else:
+        set_status(db(), oid, "cancelled", "customer", "Cancelled by customer")
+        db().commit()
+        flash("Your order has been cancelled.", "ok")
+    return redirect(url_for("order_done", oid=oid))
+
+
+@app.post("/order/<int:oid>/issue")
+@login_required
+def order_issue(oid):
+    o = own_order(oid)
+    msg = request.form.get("message", "").strip()[:1000]
+    recent = o["received_at"] and to_local(o["received_at"]) > datetime.now(STORE_TZ) - timedelta(days=ISSUE_WINDOW_DAYS)
+    if o["status"] not in ("shipped", "delivered") or (o["status"] == "delivered" and not recent):
+        flash("Problems can only be reported for shipped orders, or within "
+              f"{ISSUE_WINDOW_DAYS} days after delivery.", "error")
+    elif len(msg) < 10:
+        flash("Please describe the problem in a few words (10+ characters).", "error")
+    else:
+        db().execute("UPDATE orders SET issue=?, issue_at=? WHERE id=?", (msg, _utc(), oid))
+        log_event(db(), oid, o["status"], "customer", "Problem reported: " + msg[:200])
+        db().commit()
+        flash("Your report was sent to the store. We'll get back to you soon.", "ok")
+    return redirect(url_for("order_done", oid=oid))
 
 
 # ---------- accounts ----------
@@ -582,9 +912,11 @@ def register():
             uid = first(cur.fetchone())
             db().commit()
             record(rkey)
-            cart = session.get("cart", {})
+            cart, csrf = session.get("cart", {}), session.get("csrf")
             session.clear()
             session["cart"] = cart
+            if csrf:
+                session["csrf"] = csrf
             session["uid"] = uid
             session.permanent = True
             flash("Welcome! Your account is ready.", "ok")
@@ -605,9 +937,11 @@ def login():
         # always run one hash check so response time doesn't reveal whether the email exists
         ok = check_password_hash(u["password_hash"] if u else DUMMY_HASH, pw) and u
         if ok:
-            cart = session.get("cart", {})
+            cart, csrf = session.get("cart", {}), session.get("csrf")
             session.clear()
             session["cart"] = cart
+            if csrf:
+                session["csrf"] = csrf
             session["uid"] = u["id"]
             session.permanent = True
             nxt = request.args.get("next", "")
@@ -621,7 +955,10 @@ def login():
 
 @app.post("/logout")
 def logout():
+    csrf = session.get("csrf")
     session.clear()
+    if csrf:
+        session["csrf"] = csrf
     return redirect(url_for("catalog"))
 
 
@@ -646,6 +983,7 @@ def account():
             db().commit()
             flash("Profile updated.", "ok")
         return redirect(url_for("account"))
+    auto_confirm(db())
     orders = db().execute("SELECT * FROM orders WHERE user_id=? ORDER BY id DESC", (g.user["id"],)).fetchall()
     addrs = db().execute("SELECT * FROM addresses WHERE user_id=?", (g.user["id"],)).fetchall()
     return render_template("account/account.html", orders=orders, addrs=addrs)
@@ -678,6 +1016,7 @@ def address_delete(aid):
 @app.route("/admin")
 @admin_required
 def admin_dashboard():
+    auto_confirm(db())
     q = db().execute
 
     def one(sql, args=()):
@@ -696,6 +1035,8 @@ def admin_dashboard():
         "orders": one("SELECT COUNT(*) FROM orders"),
         "pending": one("SELECT COUNT(*) FROM orders WHERE status IN ('pending','paid','processing')"),
         "customers": one("SELECT COUNT(*) FROM users WHERE is_admin=0"),
+        "issues": one("SELECT COUNT(*) FROM orders WHERE issue IS NOT NULL AND issue!=''"),
+        "to_reply": one("SELECT COUNT(*) FROM product_reviews WHERE (admin_reply IS NULL OR admin_reply='') AND hidden=0"),
     }
     stats["aov"] = stats["revenue"] / max(1, one(f"SELECT COUNT(*) FROM orders WHERE {live}"))
     recent = q("SELECT o.*, u.name AS customer FROM orders o LEFT JOIN users u ON u.id=o.user_id "
@@ -717,12 +1058,15 @@ def admin_dashboard():
 @app.route("/admin/orders")
 @admin_required
 def admin_orders():
+    auto_confirm(db())
     status = request.args.get("status", "")
     sql = "SELECT o.*, u.name AS customer, u.email FROM orders o LEFT JOIN users u ON u.id=o.user_id"
     args = []
     if status in ORDER_STATUSES:
         sql += " WHERE o.status=?"
         args.append(status)
+    elif status == "issue":
+        sql += " WHERE o.issue IS NOT NULL AND o.issue!=''"
     orders = db().execute(sql + " ORDER BY o.id DESC", args).fetchall()
     return render_template("admin/orders.html", orders=orders, status=status)
 
@@ -730,29 +1074,68 @@ def admin_orders():
 @app.route("/admin/orders/<int:oid>", methods=["GET", "POST"])
 @admin_required
 def admin_order(oid):
-    o = db().execute("SELECT o.*, u.name AS customer, u.email FROM orders o "
+    conn = db()
+    auto_confirm(conn)
+    o = conn.execute("SELECT o.*, u.name AS customer, u.email FROM orders o "
                      "LEFT JOIN users u ON u.id=o.user_id WHERE o.id=?", (oid,)).fetchone()
     if not o:
         abort(404)
     if request.method == "POST":
-        new = request.form.get("status")
-        if new in ORDER_STATUSES and new != o["status"]:
-            conn = db()
-            # restock when cancelling, re-deduct if reviving a cancelled order
-            lines = conn.execute("SELECT product_id, qty FROM order_items WHERE order_id=? "
-                                 "AND product_id IS NOT NULL", (oid,)).fetchall()
-            for ln in lines:
-                if new == "cancelled" and o["status"] != "cancelled":
-                    conn.execute("UPDATE products SET stock=stock+? WHERE id=?", (ln["qty"], ln["product_id"]))
-                elif o["status"] == "cancelled":
-                    conn.execute("UPDATE products SET stock=CASE WHEN stock>=? THEN stock-? ELSE 0 END "
-                                 "WHERE id=?", (ln["qty"], ln["qty"], ln["product_id"]))
-            conn.execute("UPDATE orders SET status=? WHERE id=?", (new, oid))
+        f = request.form
+        note = f.get("note", "").strip()[:200]
+        if f.get("action") == "resolve_issue":
+            conn.execute("UPDATE orders SET issue='', issue_at=NULL WHERE id=?", (oid,))
+            log_event(conn, oid, o["status"], "admin", "Problem resolved" + (f": {note}" if note else ""))
             conn.commit()
-            flash(f"Order #{oid} marked {new}.", "ok")
+            flash("Problem marked as resolved.", "ok")
+        else:
+            new = f.get("status")
+            carrier = f["carrier"].strip()[:60] if "carrier" in f else None
+            tracking = f["tracking"].strip()[:100] if "tracking" in f else None
+            if new in ORDER_STATUSES and set_status(conn, oid, new, "admin", note, carrier, tracking):
+                conn.commit()
+                flash(f"Order #{oid} updated.", "ok")
         return redirect(url_for("admin_order", oid=oid))
-    items = db().execute("SELECT * FROM order_items WHERE order_id=?", (oid,)).fetchall()
-    return render_template("admin/order.html", o=o, items=items)
+    items = conn.execute("SELECT * FROM order_items WHERE order_id=?", (oid,)).fetchall()
+    events = conn.execute("SELECT * FROM order_events WHERE order_id=? ORDER BY at, id", (oid,)).fetchall()
+    return render_template("admin/order.html", o=o, items=items, events=events)
+
+
+@app.route("/admin/reviews")
+@admin_required
+def admin_reviews():
+    flt = request.args.get("f", "")
+    page = max(1, request.args.get("page", 1, type=int) or 1)
+    where = {"hidden": "r.hidden=1", "unreplied": "(r.admin_reply IS NULL OR r.admin_reply='')",
+             "low": "r.rating<=2"}.get(flt, "1=1")
+    total = first(db().execute(f"SELECT COUNT(*) FROM product_reviews r WHERE {where}").fetchone())
+    rows = [dict(x) for x in db().execute(
+        f"SELECT r.*, u.name AS author, p.name AS product_name FROM product_reviews r "
+        f"JOIN users u ON u.id=r.user_id JOIN products p ON p.id=r.product_id WHERE {where} "
+        f"ORDER BY r.created_at DESC LIMIT 20 OFFSET ?", ((page - 1) * 20,)).fetchall()]
+    for x in rows:
+        x["photos"] = [m["url"] for m in db().execute(
+            "SELECT url FROM review_media WHERE review_id=? ORDER BY position, id", (x["id"],)).fetchall()]
+    return render_template("admin/reviews.html", reviews=rows, flt=flt, page=page, pages=max(1, -(-total // 20)))
+
+
+@app.post("/admin/reviews/<int:rid>/hide")
+@admin_required
+def admin_review_hide(rid):
+    db().execute("UPDATE product_reviews SET hidden=CASE WHEN hidden=1 THEN 0 ELSE 1 END WHERE id=?", (rid,))
+    db().commit()
+    return redirect(back("admin_reviews"))
+
+
+@app.post("/admin/reviews/<int:rid>/reply")
+@admin_required
+def admin_review_reply(rid):
+    text = request.form.get("reply", "").strip()[:1000]
+    db().execute("UPDATE product_reviews SET admin_reply=?, replied_at=? WHERE id=?",
+                 (text, _utc() if text else None, rid))
+    db().commit()
+    flash("Reply saved." if text else "Reply removed.", "ok")
+    return redirect(back("admin_reviews"))
 
 
 @app.route("/admin/diagnostics", methods=["GET", "POST"])
@@ -933,6 +1316,9 @@ def admin_product_delete(pid):
     # order history keeps its own copy of name/price, so deleting is safe
     for m in db().execute("SELECT kind, url FROM product_media WHERE product_id=?", (pid,)).fetchall():
         delete_media(m["url"], m["kind"])
+    for m in db().execute("SELECT url FROM review_media WHERE review_id IN "
+                          "(SELECT id FROM product_reviews WHERE product_id=?)", (pid,)).fetchall():
+        delete_media(m["url"], "image")
     db().execute("DELETE FROM products WHERE id=?", (pid,))
     db().commit()
     flash("Product removed.", "ok")

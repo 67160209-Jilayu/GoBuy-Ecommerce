@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Review {{ p.name }}{% endblock %}
+{% block content %}
+<p class="small"><a href="{{ url_for('product', pid=p.id) }}#reviews">← Back to {{ p.name }}</a></p>
+<div class="card" style="max-width:640px">
+  <h2>{{ 'Edit your review' if mine else 'Write a review' }}</h2>
+  <p class="muted small">{{ p.name }} · Verified purchase</p>
+  <form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Your rating</label>
+    {% set cur = (form.get('rating') or (mine.rating if mine else 0))|int %}
+    <div class="starinput" role="radiogroup" aria-label="Rating">
+      {% for n in [5, 4, 3, 2, 1] %}
+      <input type="radio" id="star{{ n }}" name="rating" value="{{ n }}" {{ 'checked' if cur == n }} required>
+      <label for="star{{ n }}" title="{{ n }} star{{ 's' if n > 1 }}">★</label>
+      {% endfor %}
+    </div>
+    <label>Title (optional)</label><input name="title" maxlength="100" value="{{ form.get('title', mine.title if mine else '') }}" placeholder="Sum it up in a few words">
+    <label>Your review</label><textarea name="body" rows="5" maxlength="2000" placeholder="What did you like or dislike? How did you use it?">{{ form.get('body', mine.body if mine else '') }}</textarea>
+
+    <label>Photos (up to 3)</label>
+    {% if photos %}
+    <div class="mgrid" id="existing">
+      {% for m in photos %}<div class="mitem"><input type="hidden" name="keep" value="{{ m.id }}"><img src="{{ m.url|media }}" alt=""><button type="button" class="x" title="Remove">×</button></div>{% endfor %}
+    </div>
+    {% endif %}
+    <div class="dropzone" id="dropzone" tabindex="0" data-images-only data-max="3">
+      <strong>Drag &amp; drop</strong> photos here, or click to browse
+      <div class="small muted">png, jpg, webp or gif · up to 10 MB each</div>
+      <input type="file" id="mediaInput" name="media" accept="image/*" multiple hidden>
+    </div>
+    <div class="mgrid" id="newfiles"></div>
+    <div class="progress" id="progress" hidden><i></i></div>
+    <p class="small" id="uploadMsg" style="color:var(--bad)"></p>
+    <p><button class="btn">Save review</button> <a class="btn ghost" href="{{ url_for('product', pid=p.id) }}#reviews">Cancel</a></p>
+  </form>
+  {% if mine %}
+  <form method="post" action="{{ url_for('review_delete', rid=mine.id) }}" data-confirm="Delete your review?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn danger sm">Delete my review</button></form>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='media-upload.js') }}"></script>{% endblock %}

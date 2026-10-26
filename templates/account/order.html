@@ -1,17 +1,74 @@
 {% extends "base.html" %}
 {% block title %}Order #{{ o.id }}{% endblock %}
 {% block content %}
+<p class="small"><a href="{{ url_for('account') }}">← My account</a></p>
 <h1>Order #{{ o.id }} <span class="pill {{ o.status }}">{{ o.status }}</span></h1>
-<p class="muted">Placed {{ o.created_at|dt }}. Thank you for your order!</p>
+<p class="muted">Placed {{ o.created_at|dt }}</p>
+
+{% if o.status == 'cancelled' %}
+<div class="flash error">This order was cancelled.</div>
+{% else %}
+{% set steps = [('pending', 'Placed'), ('processing', 'Preparing'), ('shipped', 'Shipped'), ('delivered', 'Received')] %}
+{% set order_of = {'pending': 0, 'paid': 0, 'processing': 1, 'shipped': 2, 'delivered': 3} %}
+<ol class="steps">
+  {% for key, label in steps %}<li class="{{ 'done' if order_of[o.status] >= loop.index0 }}{{ ' now' if order_of[o.status] == loop.index0 }}"><span>{{ loop.index }}</span>{{ label }}</li>{% endfor %}
+</ol>
+{% endif %}
+
+{% if mine and o.status == 'shipped' %}
+<div class="callout">
+  <div><strong>Got your parcel?</strong>
+    <div class="small muted">Confirm when it arrives so the store knows it's complete and you can review your items.
+      {% if auto_on %}If we don't hear from you, this order is confirmed automatically on {{ auto_on|day }}.{% endif %}</div></div>
+  <form method="post" action="{{ url_for('order_received', oid=o.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn">✓ I received my order</button></form>
+</div>
+{% endif %}
+
+{% if o.issue %}
+<div class="flash info"><strong>Problem reported {{ o.issue_at|day }}:</strong> {{ o.issue }}<br><span class="small">The store has been notified and will follow up.</span></div>
+{% endif %}
+
 <div class="two">
-  <div class="card"><div class="tablewrap"><table>
-    <tr><th>Item</th><th>Price</th><th>Qty</th><th class="right">Subtotal</th></tr>
-    {% for i in items %}<tr><td>{{ i.name }}</td><td>{{ i.price|money }}</td><td>{{ i.qty }}</td><td class="right">{{ (i.price*i.qty)|money }}</td></tr>{% endfor %}
-  </table></div>
-  <div class="sum-row total"><span>Total</span><span>{{ o.total|money }}</span></div></div>
-  <div class="card"><h2>Ship to</h2>
-    <p>{{ o.ship_name }}<br>{{ o.ship_line1 }}<br>{{ o.ship_city }} {{ o.ship_postal }}<br>{{ o.ship_phone }}</p>
-    {% if o.note %}<p class="muted small">Note: {{ o.note }}</p>{% endif %}
-    <a href="{{ url_for('account') }}">← My account</a></div>
+  <div>
+    <div class="card"><div class="tablewrap"><table>
+      <tr><th>Item</th><th>Price</th><th>Qty</th><th class="right">Subtotal</th></tr>
+      {% for i in items %}<tr>
+        <td>{{ i.name }}
+          {% if mine and o.status == 'delivered' and i.product_id %}<br>
+            <a class="small" href="{{ url_for('review_form', pid=i.product_id) }}">{{ '✎ Edit your review' if i.product_id in reviewed else '★ Write a review' }}</a>{% endif %}</td>
+        <td>{{ i.price|money }}</td><td>{{ i.qty }}</td><td class="right">{{ (i.price*i.qty)|money }}</td></tr>{% endfor %}
+    </table></div>
+    <div class="sum-row total"><span>Total</span><span>{{ o.total|money }}</span></div></div>
+
+    <div class="card" style="margin-top:16px"><h2>Order timeline</h2>{% include "_timeline.html" %}</div>
+  </div>
+
+  <div>
+    <div class="card"><h2>Ship to</h2>
+      <p>{{ o.ship_name }}<br>{{ o.ship_line1 }}<br>{{ o.ship_city }} {{ o.ship_postal }}<br>{{ o.ship_phone }}</p>
+      {% if o.note %}<p class="muted small">Note: {{ o.note }}</p>{% endif %}</div>
+    {% if o.tracking or o.carrier %}
+    <div class="card" style="margin-top:16px"><h2>Tracking</h2>
+      <p>{% if o.carrier %}<strong>{{ o.carrier }}</strong><br>{% endif %}{% if o.tracking %}<code>{{ o.tracking }}</code>{% endif %}</p>
+      {% if o.shipped_at %}<p class="muted small">Shipped {{ o.shipped_at|day }}</p>{% endif %}</div>
+    {% endif %}
+    {% if mine %}
+    <div class="card" style="margin-top:16px"><h2>Need help?</h2>
+      {% if o.status == 'pending' %}
+      <form method="post" action="{{ url_for('order_cancel', oid=o.id) }}" data-confirm="Cancel this order?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn danger sm">Cancel order</button></form>
+      <p class="small muted">You can cancel until the store starts processing it.</p>
+      {% endif %}
+      {% if can_report and not o.issue %}
+      <details><summary style="cursor:pointer;color:var(--g600)">Report a problem</summary>
+        <form method="post" action="{{ url_for('order_issue', oid=o.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label>What went wrong? (not received, damaged, wrong item…)</label>
+          <textarea name="message" rows="3" maxlength="1000" required></textarea>
+          <p><button class="btn sm">Send report</button></p></form></details>
+      {% elif not can_report and o.status in ('delivered',) %}<p class="small muted">The problem-report window for this order has closed.</p>{% endif %}
+    </div>
+    {% endif %}
+  </div>
 </div>
 {% endblock %}
