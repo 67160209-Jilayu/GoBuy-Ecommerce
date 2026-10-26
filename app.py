@@ -1,32 +1,90 @@
 import os
+import re
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from functools import wraps
+from zoneinfo import ZoneInfo
+
+try:  # optional: load a local .env file
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 from flask import (Flask, abort, flash, g, redirect, render_template, request,
                    session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
+USE_PG = bool(DATABASE_URL)          # Neon / Postgres in production, SQLite for local dev
+IS_PROD = bool(os.environ.get("RENDER"))
+USE_CLOUDINARY = bool(os.environ.get("CLOUDINARY_URL"))
+STORE_TZ = ZoneInfo(os.environ.get("STORE_TZ", "Asia/Bangkok"))
+
+if USE_PG:
+    import psycopg
+    from psycopg.rows import dict_row
+if USE_CLOUDINARY:
+    import cloudinary
+    import cloudinary.uploader
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE, "shop.db")
 UPLOAD_DIR = os.path.join(BASE, "static", "uploads")
 ALLOWED_EXT = {"png", "jpg", "jpeg", "webp", "gif"}
+ALLOWED_VIDEO_EXT = {"mp4", "webm", "mov", "m4v", "ogg"}
 ORDER_STATUSES = ["pending", "paid", "processing", "shipped", "delivered", "cancelled"]
 LOW_STOCK_DEFAULT = 5
 
 app = Flask(__name__)
+if IS_PROD and not os.environ.get("SECRET_KEY"):
+    raise RuntimeError("SECRET_KEY must be set in production")
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
-app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
+app.config.update(SESSION_COOKIE_SECURE=IS_PROD, SESSION_COOKIE_HTTPONLY=True,
+                  SESSION_COOKIE_SAMESITE="Lax")
+app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 
 
 # ---------- database ----------
+class Conn:
+    """Thin wrapper so the same `?`-style SQL runs on SQLite and Postgres."""
+
+    def __init__(self):
+        if USE_PG:
+            # prepare_threshold=None keeps it compatible with Neon's pooled (pgbouncer) endpoint
+            self.c = psycopg.connect(DATABASE_URL, row_factory=dict_row, prepare_threshold=None)
+        else:
+            self.c = sqlite3.connect(DB_PATH)
+            self.c.row_factory = sqlite3.Row
+            self.c.execute("PRAGMA foreign_keys = ON")
+
+    def execute(self, sql, args=()):
+        if USE_PG:
+            sql = sql.replace("?", "%s")
+        return self.c.execute(sql, tuple(args))
+
+    def commit(self):
+        self.c.commit()
+
+    def rollback(self):
+        self.c.rollback()
+
+    def close(self):
+        self.c.close()
+
+
+def first(row):
+    """First column of a row (rows are dicts on Postgres, sqlite3.Row on SQLite)."""
+    return next(iter(row.values())) if USE_PG else row[0]
+
+
 def db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON")
+        g.db = Conn()
     return g.db
 
 
@@ -39,30 +97,30 @@ def close_db(_):
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
-  id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL,
+  id {PK}, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL, phone TEXT DEFAULT '', is_admin INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS addresses(
-  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id {PK}, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   full_name TEXT, line1 TEXT, city TEXT, postal_code TEXT, phone TEXT);
 CREATE TABLE IF NOT EXISTS categories(
-  id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);
+  id {PK}, name TEXT UNIQUE NOT NULL);
 CREATE TABLE IF NOT EXISTS products(
-  id INTEGER PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '',
-  price REAL NOT NULL, stock INTEGER NOT NULL DEFAULT 0,
+  id {PK}, name TEXT NOT NULL, description TEXT DEFAULT '',
+  price DOUBLE PRECISION NOT NULL, stock INTEGER NOT NULL DEFAULT 0,
   low_stock_threshold INTEGER NOT NULL DEFAULT 5,
   category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-  image TEXT DEFAULT '', active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+  image TEXT DEFAULT '', video TEXT DEFAULT '', active INTEGER DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS orders(
-  id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  status TEXT NOT NULL DEFAULT 'pending', total REAL NOT NULL,
+  id {PK}, user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'pending', total DOUBLE PRECISION NOT NULL,
   ship_name TEXT, ship_line1 TEXT, ship_city TEXT, ship_postal TEXT, ship_phone TEXT,
-  note TEXT DEFAULT '', created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+  note TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS order_items(
-  id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  id {PK}, order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
   product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
-  name TEXT NOT NULL, price REAL NOT NULL, qty INTEGER NOT NULL);
+  name TEXT NOT NULL, price DOUBLE PRECISION NOT NULL, qty INTEGER NOT NULL);
 """
 
 SEED_PRODUCTS = [
@@ -80,17 +138,34 @@ SEED_PRODUCTS = [
 
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.executescript(SCHEMA)
-    if not conn.execute("SELECT 1 FROM users LIMIT 1").fetchone():
-        conn.execute("INSERT INTO users(name,email,password_hash,is_admin) VALUES(?,?,?,1)",
-                     ("Store Owner", "admin@shop.local", generate_password_hash("admin123")))
-    if not conn.execute("SELECT 1 FROM products LIMIT 1").fetchone():
-        for n, d, p, s, c in SEED_PRODUCTS:
-            conn.execute("INSERT OR IGNORE INTO categories(name) VALUES(?)", (c,))
-            cid = conn.execute("SELECT id FROM categories WHERE name=?", (c,)).fetchone()[0]
+    conn = Conn()
+    if USE_PG:  # several gunicorn workers start at once; serialize schema setup
+        conn.execute("SELECT pg_advisory_lock(727274)")
+    schema = SCHEMA.replace("{PK}", "SERIAL PRIMARY KEY" if USE_PG else "INTEGER PRIMARY KEY")
+    for stmt in schema.split(";"):
+        if stmt.strip():
+            conn.execute(stmt)
+    # migrate databases created before video support
+    if USE_PG:
+        conn.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS video TEXT DEFAULT ''")
+    elif "video" not in [r[1] for r in conn.execute("PRAGMA table_info(products)")]:
+        conn.execute("ALTER TABLE products ADD COLUMN video TEXT DEFAULT ''")
+
+    if not conn.execute("SELECT 1 FROM users WHERE is_admin=1 LIMIT 1").fetchone():
+        email = os.environ.get("ADMIN_EMAIL", "admin@shop.local").strip().lower()
+        pw = os.environ.get("ADMIN_PASSWORD") or (None if USE_PG else "admin123")
+        if pw:
+            conn.execute("INSERT INTO users(name,email,password_hash,is_admin) VALUES(?,?,?,1)",
+                         ("Store Owner", email, generate_password_hash(pw)))
+        else:
+            print("WARNING: no admin user. Set ADMIN_EMAIL and ADMIN_PASSWORD to create one.")
+    seed = os.environ.get("SEED_DEMO", "0" if USE_PG else "1") == "1"
+    if seed and not conn.execute("SELECT 1 FROM products LIMIT 1").fetchone():
+        for n, d, p, st, c in SEED_PRODUCTS:
+            conn.execute("INSERT INTO categories(name) VALUES(?) ON CONFLICT(name) DO NOTHING", (c,))
+            cid = first(conn.execute("SELECT id FROM categories WHERE name=?", (c,)).fetchone())
             conn.execute("INSERT INTO products(name,description,price,stock,category_id) VALUES(?,?,?,?,?)",
-                         (n, d, p, s, cid))
+                         (n, d, p, st, cid))
     conn.commit()
     conn.close()
 
@@ -99,6 +174,8 @@ def init_db():
 @app.before_request
 def load_user():
     g.user = None
+    if request.endpoint == "static":
+        return
     if "uid" in session:
         g.user = db().execute("SELECT * FROM users WHERE id=?", (session["uid"],)).fetchone()
         if g.user is None:
@@ -157,13 +234,53 @@ def money(v):
     return f"฿{v:,.0f}" if float(v).is_integer() else f"฿{v:,.2f}"
 
 
-def save_image(file):
+def to_local(v):
+    """DB timestamps are UTC; convert to the store's timezone."""
+    if isinstance(v, str):
+        v = datetime.fromisoformat(v)
+    return v.replace(tzinfo=timezone.utc).astimezone(STORE_TZ)
+
+
+@app.template_filter("dt")
+def fmt_dt(v):
+    return to_local(v).strftime("%Y-%m-%d %H:%M") if v else ""
+
+
+@app.template_filter("media")
+def media_url(path):
+    """Cloudinary URLs are absolute; local dev uploads live under /static."""
+    if path.startswith("http"):
+        return path
+    return url_for("static", filename=path)
+
+
+def delete_media(url, kind):
+    """Best-effort removal of a replaced/deleted Cloudinary asset."""
+    if not (USE_CLOUDINARY and url and url.startswith("http")):
+        return
+    m = re.search(r"/upload/(?:v\d+/)?(.+?)(?:\.\w+)?$", url)
+    if m:
+        try:
+            cloudinary.uploader.destroy(m.group(1), resource_type=kind)
+        except Exception:
+            app.logger.exception("Cloudinary delete failed for %s", url)
+
+
+def save_media(file, allowed=ALLOWED_EXT, label="Image must be png, jpg, webp or gif.", kind="image"):
     if not file or not file.filename:
         return None
     ext = file.filename.rsplit(".", 1)[-1].lower()
-    if ext not in ALLOWED_EXT:
-        flash("Image must be png, jpg, webp or gif.", "error")
+    if ext not in allowed:
+        flash(label, "error")
         return None
+    if USE_CLOUDINARY:
+        try:
+            up = cloudinary.uploader.upload_large if kind == "video" else cloudinary.uploader.upload
+            return up(file.stream, resource_type=kind, folder="gobuy")["secure_url"]
+        except Exception:
+            app.logger.exception("Cloudinary upload failed")
+            flash("Upload failed, please try again.", "error")
+            return None
     name = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
     file.save(os.path.join(UPLOAD_DIR, name))
     return "uploads/" + name
@@ -282,9 +399,9 @@ def checkout():
                 return redirect(url_for("cart"))
         cur = conn.execute(
             "INSERT INTO orders(user_id,status,total,ship_name,ship_line1,ship_city,ship_postal,ship_phone,note) "
-            "VALUES(?,?,?,?,?,?,?,?,?)",
+            "VALUES(?,?,?,?,?,?,?,?,?) RETURNING id",
             (g.user["id"], "pending", total, *ship, f.get("note", "").strip()))
-        oid = cur.lastrowid
+        oid = first(cur.fetchone())
         for it in items:
             conn.execute("INSERT INTO order_items(order_id,product_id,name,price,qty) VALUES(?,?,?,?,?)",
                          (oid, it["p"]["id"], it["p"]["name"], it["p"]["price"], it["qty"]))
@@ -316,10 +433,11 @@ def register():
         elif db().execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
             flash("That email is already registered.", "error")
         else:
-            cur = db().execute("INSERT INTO users(name,email,password_hash) VALUES(?,?,?)",
+            cur = db().execute("INSERT INTO users(name,email,password_hash) VALUES(?,?,?) RETURNING id",
                                (name, email, generate_password_hash(pw)))
+            uid = first(cur.fetchone())
             db().commit()
-            session["uid"] = cur.lastrowid
+            session["uid"] = uid
             flash("Welcome! Your account is ready.", "ok")
             return redirect(url_for("catalog"))
     return render_template("account/register.html")
@@ -403,25 +521,34 @@ def address_delete(aid):
 @admin_required
 def admin_dashboard():
     q = db().execute
+
+    def one(sql, args=()):
+        return first(q(sql, args).fetchone())
+
+    def utc(d):
+        return d.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+    today0 = datetime.now(STORE_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    month0 = today0.replace(day=1)
+    live = "status!='cancelled'"
     stats = {
-        "revenue": q("SELECT COALESCE(SUM(total),0) FROM orders WHERE status!='cancelled'").fetchone()[0],
-        "today": q("SELECT COALESCE(SUM(total),0) FROM orders WHERE status!='cancelled' "
-                   "AND date(created_at)=date('now')").fetchone()[0],
-        "month": q("SELECT COALESCE(SUM(total),0) FROM orders WHERE status!='cancelled' "
-                   "AND strftime('%Y-%m',created_at)=strftime('%Y-%m','now')").fetchone()[0],
-        "orders": q("SELECT COUNT(*) FROM orders").fetchone()[0],
-        "pending": q("SELECT COUNT(*) FROM orders WHERE status IN ('pending','paid','processing')").fetchone()[0],
-        "customers": q("SELECT COUNT(*) FROM users WHERE is_admin=0").fetchone()[0],
+        "revenue": one(f"SELECT COALESCE(SUM(total),0) FROM orders WHERE {live}"),
+        "today": one(f"SELECT COALESCE(SUM(total),0) FROM orders WHERE {live} AND created_at>=?", (utc(today0),)),
+        "month": one(f"SELECT COALESCE(SUM(total),0) FROM orders WHERE {live} AND created_at>=?", (utc(month0),)),
+        "orders": one("SELECT COUNT(*) FROM orders"),
+        "pending": one("SELECT COUNT(*) FROM orders WHERE status IN ('pending','paid','processing')"),
+        "customers": one("SELECT COUNT(*) FROM users WHERE is_admin=0"),
     }
-    stats["aov"] = stats["revenue"] / max(1, q("SELECT COUNT(*) FROM orders WHERE status!='cancelled'").fetchone()[0])
+    stats["aov"] = stats["revenue"] / max(1, one(f"SELECT COUNT(*) FROM orders WHERE {live}"))
     recent = q("SELECT o.*, u.name AS customer FROM orders o LEFT JOIN users u ON u.id=o.user_id "
                "ORDER BY o.id DESC LIMIT 6").fetchall()
     low = q("SELECT * FROM products WHERE active=1 AND stock<=low_stock_threshold ORDER BY stock").fetchall()
-    daily = q("SELECT date(created_at) d, SUM(total) t FROM orders WHERE status!='cancelled' "
-              "AND date(created_at)>=date('now','-6 day') GROUP BY d").fetchall()
-    dmap = {r["d"]: r["t"] for r in daily}
-    from datetime import timedelta
-    days = [(datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
+    week0 = today0 - timedelta(days=6)
+    dmap = {}
+    for row in q(f"SELECT created_at, total FROM orders WHERE {live} AND created_at>=?", (utc(week0),)).fetchall():
+        d = to_local(row["created_at"]).strftime("%Y-%m-%d")
+        dmap[d] = dmap.get(d, 0) + row["total"]
+    days = [(week0 + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
     chart = [{"label": d[5:], "value": dmap.get(d, 0)} for d in days]
     top = q("SELECT name, SUM(qty) qty, SUM(qty*price) rev FROM order_items GROUP BY name "
             "ORDER BY rev DESC LIMIT 5").fetchall()
@@ -454,14 +581,14 @@ def admin_order(oid):
         if new in ORDER_STATUSES and new != o["status"]:
             conn = db()
             # restock when cancelling, re-deduct if reviving a cancelled order
-            if new == "cancelled" and o["status"] != "cancelled":
-                conn.execute("UPDATE products SET stock=stock+(SELECT qty FROM order_items oi WHERE "
-                             "oi.order_id=? AND oi.product_id=products.id) WHERE id IN "
-                             "(SELECT product_id FROM order_items WHERE order_id=?)", (oid, oid))
-            elif o["status"] == "cancelled":
-                conn.execute("UPDATE products SET stock=MAX(0,stock-(SELECT qty FROM order_items oi WHERE "
-                             "oi.order_id=? AND oi.product_id=products.id)) WHERE id IN "
-                             "(SELECT product_id FROM order_items WHERE order_id=?)", (oid, oid))
+            lines = conn.execute("SELECT product_id, qty FROM order_items WHERE order_id=? "
+                                 "AND product_id IS NOT NULL", (oid,)).fetchall()
+            for ln in lines:
+                if new == "cancelled" and o["status"] != "cancelled":
+                    conn.execute("UPDATE products SET stock=stock+? WHERE id=?", (ln["qty"], ln["product_id"]))
+                elif o["status"] == "cancelled":
+                    conn.execute("UPDATE products SET stock=CASE WHEN stock>=? THEN stock-? ELSE 0 END "
+                                 "WHERE id=?", (ln["qty"], ln["qty"], ln["product_id"]))
             conn.execute("UPDATE orders SET status=? WHERE id=?", (new, oid))
             conn.commit()
             flash(f"Order #{oid} marked {new}.", "ok")
@@ -502,20 +629,29 @@ def _product_form(pid=None):
         else:
             cat = f.get("new_category", "").strip()
             if cat:
-                conn.execute("INSERT OR IGNORE INTO categories(name) VALUES(?)", (cat,))
-                cid = conn.execute("SELECT id FROM categories WHERE name=?", (cat,)).fetchone()[0]
+                conn.execute("INSERT INTO categories(name) VALUES(?) ON CONFLICT(name) DO NOTHING", (cat,))
+                cid = first(conn.execute("SELECT id FROM categories WHERE name=?", (cat,)).fetchone())
             else:
                 cid = f.get("category_id", type=int)
-            img = save_image(request.files.get("image")) or (p["image"] if p else "")
+            old_img, old_vid = (p["image"], p["video"]) if p else ("", "")
+            img = save_media(request.files.get("image")) or old_img
+            vid = save_media(request.files.get("video"), ALLOWED_VIDEO_EXT,
+                             "Video must be mp4, webm, mov, m4v or ogg.", "video") or old_vid
+            if f.get("remove_video"):
+                vid = ""
+            if old_img and img != old_img:
+                delete_media(old_img, "image")
+            if old_vid and vid != old_vid:
+                delete_media(old_vid, "video")
             active = 1 if f.get("active") else 0
             if p:
                 conn.execute("UPDATE products SET name=?,description=?,price=?,stock=?,low_stock_threshold=?,"
-                             "category_id=?,image=?,active=? WHERE id=?",
-                             (name, f.get("description", ""), price, stock, thr, cid, img, active, pid))
+                             "category_id=?,image=?,video=?,active=? WHERE id=?",
+                             (name, f.get("description", ""), price, stock, thr, cid, img, vid, active, pid))
             else:
                 conn.execute("INSERT INTO products(name,description,price,stock,low_stock_threshold,"
-                             "category_id,image,active) VALUES(?,?,?,?,?,?,?,?)",
-                             (name, f.get("description", ""), price, stock, thr, cid, img, active))
+                             "category_id,image,video,active) VALUES(?,?,?,?,?,?,?,?,?)",
+                             (name, f.get("description", ""), price, stock, thr, cid, img, vid, active))
             conn.commit()
             flash("Product saved.", "ok")
             return redirect(url_for("admin_products"))
@@ -550,10 +686,20 @@ def admin_stock(pid):
 @admin_required
 def admin_product_delete(pid):
     # order history keeps its own copy of name/price, so deleting is safe
+    p = db().execute("SELECT image, video FROM products WHERE id=?", (pid,)).fetchone()
+    if p:
+        delete_media(p["image"], "image")
+        delete_media(p["video"], "video")
     db().execute("DELETE FROM products WHERE id=?", (pid,))
     db().commit()
     flash("Product removed.", "ok")
     return redirect(url_for("admin_products"))
+
+
+@app.errorhandler(413)
+def too_large(_):
+    flash("File too large (max 100 MB).", "error")
+    return redirect(request.referrer or url_for("admin_products"))
 
 
 @app.errorhandler(403)

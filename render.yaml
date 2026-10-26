@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: gobuy
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 2 --threads 4 --timeout 120
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL        # Neon connection string (pooled, sslmode=require)
+        sync: false
+      - key: CLOUDINARY_URL      # cloudinary://API_KEY:API_SECRET@CLOUD_NAME
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: STORE_TZ
+        value: Asia/Bangkok

@@ -9,7 +9,7 @@
 <div class="card"><div class="tablewrap"><table>
   <tr><th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th class="right">Total</th><th></th></tr>
   {% for o in orders %}
-  <tr><td><a href="{{ url_for('admin_order', oid=o.id) }}">#{{ o.id }}</a></td><td>{{ o.created_at[:16] }}</td>
+  <tr><td><a href="{{ url_for('admin_order', oid=o.id) }}">#{{ o.id }}</a></td><td>{{ o.created_at|dt }}</td>
   <td>{{ o.customer or 'Guest' }}<br><span class="muted small">{{ o.email }}</span></td>
   <td><form method="post" action="{{ url_for('admin_order', oid=o.id) }}"><select name="status" onchange="this.form.submit()" style="width:auto;padding:4px 8px">
     {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if s == o.status }}>{{ s|capitalize }}</option>{% endfor %}</select></form></td>

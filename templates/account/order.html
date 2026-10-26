@@ -2,7 +2,7 @@
 {% block title %}Order #{{ o.id }}{% endblock %}
 {% block content %}
 <h1>Order #{{ o.id }} <span class="pill {{ o.status }}">{{ o.status }}</span></h1>
-<p class="muted">Placed {{ o.created_at[:16] }}. Thank you for your order!</p>
+<p class="muted">Placed {{ o.created_at|dt }}. Thank you for your order!</p>
 <div class="two">
   <div class="card"><div class="tablewrap"><table>
     <tr><th>Item</th><th>Price</th><th>Qty</th><th class="right">Subtotal</th></tr>

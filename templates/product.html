@@ -4,7 +4,10 @@
 {% block content %}
 <p class="small"><a href="{{ url_for('catalog') }}">← Back to shop</a></p>
 <div class="detail">
-  {{ pimg(p) }}
+  <div>
+    {{ pimg(p) }}
+    {% if p.video %}<video class="pvideo" src="{{ p.video|media }}" controls preload="metadata" playsinline></video>{% endif %}
+  </div>
   <div>
     <span class="small muted">{{ p.category or 'Uncategorized' }}</span>
     <h1>{{ p.name }}</h1>

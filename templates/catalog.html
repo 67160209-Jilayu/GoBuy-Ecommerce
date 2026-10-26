@@ -26,7 +26,7 @@
       <span class="cat">{{ p.category or 'Uncategorized' }}</span>
       <span class="name">{{ p.name }}</span>
       <span class="price">{{ p.price|money }}</span>
-      <span>{{ stock_tag(p) }}</span>
+      <span>{{ stock_tag(p) }}{% if p.video %} <span class="tag">▶ Video</span>{% endif %}</span>
     </div>
   </a>
   {% endfor %}

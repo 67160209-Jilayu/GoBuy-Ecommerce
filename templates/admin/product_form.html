@@ -18,7 +18,10 @@
     </div>
     <label>…or create a new category</label><input name="new_category" placeholder="e.g. Stationery">
     <label>Image</label><input type="file" name="image" accept="image/*">
-    {% if p and p.image %}<p class="small muted">Current: <img src="{{ url_for('static', filename=p.image) }}" style="height:40px;vertical-align:middle;border-radius:6px"> (upload to replace)</p>{% endif %}
+    {% if p and p.image %}<p class="small muted">Current: <img src="{{ p.image|media }}" style="height:40px;vertical-align:middle;border-radius:6px"> (upload to replace)</p>{% endif %}
+    <label>Video (mp4, webm, mov · max 100 MB)</label><input type="file" name="video" accept="video/*">
+    {% if p and p.video %}<p class="small muted">Current video: <video src="{{ p.video|media }}" style="height:60px;vertical-align:middle;border-radius:6px" muted></video>
+      <label style="display:inline-flex;gap:6px;align-items:center;margin:0 0 0 8px"><input type="checkbox" name="remove_video"> remove</label></p>{% endif %}
     <label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" name="active" {{ 'checked' if not p or p.active }}> Visible in shop</label>
     <p><button class="btn">Save</button> <a class="btn ghost" href="{{ url_for('admin_products') }}">Cancel</a></p>
   </form>
